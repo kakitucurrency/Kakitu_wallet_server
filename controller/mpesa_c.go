@@ -12,6 +12,7 @@ import (
 	"github.com/kakitucurrency/kakitu-wallet-server/repository"
 	"github.com/kakitucurrency/kakitu-wallet-server/utils"
 	"github.com/shopspring/decimal"
+	"k8s.io/klog/v2"
 )
 
 // MpesaController handles M-Pesa cash-in and cash-out HTTP endpoints.
@@ -112,6 +113,12 @@ func (mc *MpesaController) HandleCashInCallback(w http.ResponseWriter, r *http.R
 				break
 			}
 		}
+	}
+
+	if receipt == "" {
+		klog.Errorf("Missing MpesaReceiptNumber in callback for %s", cb.CheckoutRequestID)
+		_ = mc.MpesaTxnRepo.UpdateStatus(cb.CheckoutRequestID, "failed", "")
+		return
 	}
 
 	txn, err := mc.MpesaTxnRepo.FindByMerchantReqID(checkoutRequestID)
