@@ -177,11 +177,15 @@ func main() {
 	fcmRepo := &repository.FcmTokenRepo{
 		DB: db,
 	}
+	mpesaTxnRepo := &repository.MpesaTxnRepo{
+		DB: db,
+	}
 
 	// Setup controllers
 	pricePrefix := "kshs"
 	_ = bananoMode // unused in Kakitu mode
 	hc := controller.HttpController{RPCClient: &rpcClient, BananoMode: false, FcmTokenRepo: fcmRepo, FcmClient: fcmClient}
+	mc := controller.MpesaController{RPCClient: &rpcClient, MpesaTxnRepo: mpesaTxnRepo}
 
 	// Get RATE_LIMIT_WHITELIST from env
 	rateLimitWhitelist := strings.Split(utils.GetEnv("RATE_LIMIT_WHITELIST", ""), ",")
@@ -221,6 +225,14 @@ func main() {
 	// HTTP Routes
 	app.Post("/api", hc.HandleAction)
 	app.Post("/callback", hc.HandleHTTPCallback)
+
+	// M-Pesa Daraja routes
+	app.Route("/mpesa", func(r chi.Router) {
+		r.Post("/cashin", mc.HandleCashIn)
+		r.Post("/cashin/callback", mc.HandleCashInCallback)
+		r.Post("/cashout", mc.HandleCashOut)
+		r.Post("/cashout/callback", mc.HandleCashOutCallback)
+	})
 
 	// Alerts
 	app.Route("/alerts", func(r chi.Router) {
