@@ -39,6 +39,14 @@ func GetRedisDB() *redisManager {
 				Client: client,
 				Mock:   true,
 			}
+		} else if redisURL := utils.GetEnv("REDIS_URL", ""); redisURL != "" {
+			// Railway and other PaaS providers inject REDIS_URL
+			opt, err := redis.ParseURL(redisURL)
+			if err != nil {
+				panic(fmt.Sprintf("Invalid REDIS_URL: %v", err))
+			}
+			client := redis.NewClient(opt)
+			singleton = &redisManager{Client: client, Mock: false}
 		} else {
 			redis_port, err := strconv.Atoi(utils.GetEnv("REDIS_PORT", "6379"))
 			if err != nil {

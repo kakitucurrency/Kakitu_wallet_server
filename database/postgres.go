@@ -9,6 +9,7 @@ import (
 )
 
 type Config struct {
+	URL      string // takes precedence if set (e.g. Railway's DATABASE_URL)
 	Host     string
 	Port     string
 	Password string
@@ -18,10 +19,15 @@ type Config struct {
 }
 
 func NewConnection(config *Config) (*gorm.DB, error) {
-	dsn := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		config.Host, config.Port, config.User, config.Password, config.DBName, config.SSLMode,
-	)
+	var dsn string
+	if config.URL != "" {
+		dsn = config.URL
+	} else {
+		dsn = fmt.Sprintf(
+			"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+			config.Host, config.Port, config.User, config.Password, config.DBName, config.SSLMode,
+		)
+	}
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return db, err

@@ -121,6 +121,7 @@ func main() {
 
 	// Setup database conn
 	config := &database.Config{
+		URL:      os.Getenv("DATABASE_URL"), // Railway injects this; takes precedence
 		Host:     os.Getenv("DB_HOST"),
 		Port:     os.Getenv("DB_PORT"),
 		Password: os.Getenv("DB_PASS"),
