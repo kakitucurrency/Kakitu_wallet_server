@@ -31,6 +31,7 @@ require (
 	github.com/jinzhu/now v1.1.4 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
+	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/vektah/gqlparser/v2 v2.4.5 // indirect
 	golang.org/x/net v0.0.0-20220722155237-a158d28d115b // indirect
 	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4 // indirect
