@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/appditto/natrium-wallet-server/gql"
-	"github.com/appditto/natrium-wallet-server/models"
-	"github.com/appditto/natrium-wallet-server/utils"
+	"github.com/kakitucurrency/kakitu-wallet-server/gql"
+	"github.com/kakitucurrency/kakitu-wallet-server/models"
+	"github.com/kakitucurrency/kakitu-wallet-server/utils"
 	"k8s.io/klog/v2"
 )
 

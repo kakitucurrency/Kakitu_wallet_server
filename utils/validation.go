@@ -5,56 +5,44 @@ import (
 	"errors"
 	"regexp"
 
-	"github.com/appditto/natrium-wallet-server/utils/ed25519"
+	"github.com/kakitucurrency/kakitu-wallet-server/utils/ed25519"
 	"golang.org/x/crypto/blake2b"
 )
 
-// nano uses a non-standard base32 character set.
+// Kakitu uses the same non-standard base32 character set as NANO
 const EncodeNano = "13456789abcdefghijkmnopqrstuwxyz"
 
 var NanoEncoding = base32.NewEncoding(EncodeNano)
 
-const bananoRegexStr = "(?:ban)(?:_)(?:1|3)(?:[13456789abcdefghijkmnopqrstuwxyz]{59})"
-const nanoRegexStr = "(?:xrb|nano)(?:_)(?:1|3)(?:[13456789abcdefghijkmnopqrstuwxyz]{59})"
+// kshs_ prefix, 65 chars total (5 prefix + 60 body)
+const kshs_RegexStr = "(?:kshs)(?:_)(?:1|3)(?:[13456789abcdefghijkmnopqrstuwxyz]{59})"
 
-var bananoRegex = regexp.MustCompile(bananoRegexStr)
-var nanoRegex = regexp.MustCompile(nanoRegexStr)
+var kshsRegex = regexp.MustCompile(kshs_RegexStr)
 
-// ValidateAddress - Returns true if a nano/banano address is valid
+// ValidateAddress - Returns true if a kshs_ address is valid
 func ValidateAddress(account string, bananoMode bool) bool {
-	if bananoMode && !bananoRegex.MatchString(account) {
-		return false
-	} else if !bananoMode && !nanoRegex.MatchString(account) {
+	if !kshsRegex.MatchString(account) {
 		return false
 	}
-
 	_, err := AddressToPub(account)
-	if err != nil {
-		return false
-	}
-	return true
+	return err == nil
 }
 
 // Convert address to a public key
 func AddressToPub(account string) (public_key []byte, err error) {
 	address := string(account)
 
-	if address[:4] == "xrb_" || address[:4] == "ban_" {
-		address = address[4:]
-	} else if address[:5] == "nano_" {
+	if len(address) >= 5 && address[:5] == "kshs_" {
 		address = address[5:]
 	} else {
-		return nil, errors.New("Invalid address format")
+		return nil, errors.New("Invalid address format: must start with kshs_")
 	}
-	// A valid nano address is 64 bytes long
-	// First 5 are simply a hard-coded string nano_ for ease of use
-	// The following 52 characters form the address, and the final
-	// 8 are a checksum.
-	// They are base 32 encoded with a custom encoding.
+
+	// A valid kshs address is 65 bytes long (5 prefix + 60 body)
+	// The 60-char body: 52 key chars + 8 checksum chars
 	if len(address) == 60 {
-		// The nano address string is 260bits which doesn't fall on a
-		// byte boundary. pad with zeros to 280bits.
-		// (zeros are encoded as 1 in nano's 32bit alphabet)
+		// The address string is 260 bits — pad to 280 bits with zeros.
+		// (zeros are encoded as 1 in nano's base32 alphabet)
 		key_b32nano := "1111" + address[0:52]
 		input_checksum := address[52:]
 
@@ -62,17 +50,14 @@ func AddressToPub(account string) (public_key []byte, err error) {
 		if err != nil {
 			return nil, err
 		}
-		// strip off upper 24 bits (3 bytes). 20 padding was added by us,
-		// 4 is unused as account is 256 bits.
+		// Strip off upper 24 bits (3 bytes): 20 padding + 4 unused
 		key_bytes = key_bytes[3:]
 
-		// nano checksum is calculated by hashing the key and reversing the bytes
 		valid := NanoEncoding.EncodeToString(GetAddressChecksum(key_bytes)) == input_checksum
 		if valid {
 			return key_bytes, nil
-		} else {
-			return nil, errors.New("Invalid address checksum")
 		}
+		return nil, errors.New("Invalid address checksum")
 	}
 
 	return nil, errors.New("Invalid address format")
@@ -83,7 +68,6 @@ func GetAddressChecksum(pub ed25519.PublicKey) []byte {
 	if err != nil {
 		panic("Unable to create hash")
 	}
-
 	hash.Write(pub)
 	return Reversed(hash.Sum(nil))
 }

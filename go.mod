@@ -1,4 +1,4 @@
-module github.com/appditto/natrium-wallet-server
+module github.com/kakitucurrency/kakitu-wallet-server
 
 go 1.19
 

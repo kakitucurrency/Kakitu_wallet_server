@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/appditto/natrium-wallet-server/database"
+	"github.com/kakitucurrency/kakitu-wallet-server/database"
 	"github.com/stretchr/testify/assert"
 )
 

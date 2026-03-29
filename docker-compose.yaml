@@ -1,46 +1,50 @@
 version: '3.9'
 services:
     redis:
-        container_name: natrium_redis
+        container_name: kakitu_redis
         image: redis:7-alpine
         restart: unless-stopped
         networks: ['app-network']
 
     db:
-        container_name: natrium_postgres
+        container_name: kakitu_postgres
         image: postgres:14
         ports:
             - '127.0.0.1:54323:5432'
         restart: unless-stopped
         environment:
-            - POSTGRES_DB=natrium
+            - POSTGRES_DB=kakitu
             - POSTGRES_USER=postgres
             - POSTGRES_PASSWORD=postgres
             - PGDATA=/var/lib/postgresql/data/dev
         volumes:
-            - .data/postgres:/var/lib/postgresql/data:delegated # Delegated indicates the containers view of the volume takes priority
+            - .data/postgres:/var/lib/postgresql/data:delegated
             - ./scripts/setup_test_db.sh:/docker-entrypoint-initdb.d/setup_test_db.sh
         networks: ['app-network']
 
     app:
-        container_name: natrium_dev
+        container_name: kakitu_dev
         security_opt:
-            - "seccomp:unconfined"        
+            - "seccomp:unconfined"
         environment:
             - DB_HOST=db
             - DB_PORT=5432
             - DB_USER=postgres
             - DB_PASS=postgres
-            - DB_NAME=natrium
+            - DB_NAME=kakitu
             - DB_MOCK_HOST=db
             - DB_MOCK_PORT=5432
             - DB_MOCK_USER=postgres
             - DB_MOCK_PASS=postgres
             - DB_SSLMODE=disable
-            - DATABASE_URL=postgres://postgres:postgres@db:5432/natrium
+            - DATABASE_URL=postgres://postgres:postgres@db:5432/kakitu
             - REDIS_HOST=redis
-            - GOPRIVATE=github.com/appditto
-            - RPC_URL=https://app.natrium.io/api
+            - RPC_URL=http://node:7076
+            - NODE_WS_URL=ws://node:7078
+            - WORK_URL=http://node:7076
+            # Set these in .env or override at runtime:
+            # FCM_API_KEY=<firebase_key>
+            # DONATION_ACCOUNT=kshs_1yourdonationaddress
         ports:
             - '127.0.0.1:3003:3000'
         build:
@@ -49,7 +53,7 @@ services:
         volumes:
             - $PWD:/app:cached
         restart: on-failure
-        entrypoint: /bin/zsh
+        entrypoint: /bin/sh
         stdin_open: true
         tty: true
         networks: ['app-network']

@@ -3,7 +3,7 @@ package database
 import (
 	"fmt"
 
-	"github.com/appditto/natrium-wallet-server/models/dbmodels"
+	"github.com/kakitucurrency/kakitu-wallet-server/models/dbmodels"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )

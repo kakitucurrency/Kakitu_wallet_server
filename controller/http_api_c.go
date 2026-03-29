@@ -9,10 +9,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/appditto/natrium-wallet-server/models"
-	"github.com/appditto/natrium-wallet-server/net"
-	"github.com/appditto/natrium-wallet-server/repository"
-	"github.com/appditto/natrium-wallet-server/utils"
+	"github.com/kakitucurrency/kakitu-wallet-server/models"
+	"github.com/kakitucurrency/kakitu-wallet-server/net"
+	"github.com/kakitucurrency/kakitu-wallet-server/repository"
+	"github.com/kakitucurrency/kakitu-wallet-server/utils"
 	"github.com/appleboy/go-fcm"
 	"github.com/go-chi/render"
 	"github.com/mitchellh/mapstructure"
@@ -414,27 +414,14 @@ func (hc *HttpController) HandleHTTPCallback(w http.ResponseWriter, r *http.Requ
 		}
 
 		// We have tokens, make it happen
-		var notificationTitle string
-		var appName string
-		if hc.BananoMode {
-			appName = "Kalium"
-			asBan, err := utils.RawToBanano(sendAmount.String(), true)
-			if err != nil {
-				klog.Errorf("Error converting raw to banano %s", err)
-				render.Status(r, http.StatusOK)
-				return
-			}
-			notificationTitle = fmt.Sprintf("Received %s BANANO", strconv.FormatFloat(asBan, 'f', -1, 64))
-		} else {
-			appName = "Natrium"
-			asBan, err := utils.RawToNano(sendAmount.String(), true)
-			if err != nil {
-				klog.Errorf("Error converting raw to nano %s", err)
-				render.Status(r, http.StatusOK)
-				return
-			}
-			notificationTitle = fmt.Sprintf("Received Ӿ%s", strconv.FormatFloat(asBan, 'f', -1, 64))
+		appName := "Kakitu"
+		asKshs, err := utils.RawToNano(sendAmount.String(), true)
+		if err != nil {
+			klog.Errorf("Error converting raw to KSHS %s", err)
+			render.Status(r, http.StatusOK)
+			return
 		}
+		notificationTitle := fmt.Sprintf("Received %s KSHS", strconv.FormatFloat(asKshs, 'f', -1, 64))
 		notificationBody := fmt.Sprintf("Open %s to receive this transaction.", appName)
 
 		for _, token := range tokens {

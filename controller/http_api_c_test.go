@@ -9,10 +9,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/appditto/natrium-wallet-server/database"
-	"github.com/appditto/natrium-wallet-server/net"
-	"github.com/appditto/natrium-wallet-server/repository"
-	"github.com/appditto/natrium-wallet-server/utils/mocks"
+	"github.com/kakitucurrency/kakitu-wallet-server/database"
+	"github.com/kakitucurrency/kakitu-wallet-server/net"
+	"github.com/kakitucurrency/kakitu-wallet-server/repository"
+	"github.com/kakitucurrency/kakitu-wallet-server/utils/mocks"
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 )

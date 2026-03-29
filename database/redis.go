@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/appditto/natrium-wallet-server/utils"
+	"github.com/kakitucurrency/kakitu-wallet-server/utils"
 	"github.com/go-redis/redis/v9"
 	"k8s.io/klog/v2"
 )

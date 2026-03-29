@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/appditto/natrium-wallet-server/controller"
-	"github.com/appditto/natrium-wallet-server/database"
-	"github.com/appditto/natrium-wallet-server/gql"
-	"github.com/appditto/natrium-wallet-server/models"
-	"github.com/appditto/natrium-wallet-server/net"
-	"github.com/appditto/natrium-wallet-server/repository"
-	"github.com/appditto/natrium-wallet-server/utils"
+	"github.com/kakitucurrency/kakitu-wallet-server/controller"
+	"github.com/kakitucurrency/kakitu-wallet-server/database"
+	"github.com/kakitucurrency/kakitu-wallet-server/gql"
+	"github.com/kakitucurrency/kakitu-wallet-server/models"
+	"github.com/kakitucurrency/kakitu-wallet-server/net"
+	"github.com/kakitucurrency/kakitu-wallet-server/repository"
+	"github.com/kakitucurrency/kakitu-wallet-server/utils"
 	"github.com/appleboy/go-fcm"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
@@ -52,15 +52,15 @@ func main() {
 	// 	flag.Set("v", "3")
 	// }
 	bolivarPriceUpdate := flag.Bool("bolivar-price-update", false, "Update bolivar price")
-	nanoPriceUpdate := flag.Bool("nano-price-update", false, "Update nano prices")
-	bananoPriceUpdate := flag.Bool("banano-price-update", false, "Update banano prices")
-	bananoMode := flag.Bool("banano", false, "Run in BANANO mode (Kalium)")
-	socketIoServer := flag.Bool("socket-io", false, "Run socket.io server (natrium.io/donate)")
+	nanoPriceUpdate := flag.Bool("kshs-price-update", false, "Update KSHS prices from CoinGecko")
+	bananoPriceUpdate := flag.Bool("banano-price-update", false, "Update banano prices (unused, kept for compat)")
+	bananoMode := flag.Bool("banano", false, "Run in BANANO mode (unused)")
+	socketIoServer := flag.Bool("socket-io", false, "Run socket.io server for donation endpoint")
 	version := flag.Bool("version", false, "Display the version")
 	flag.Parse()
 
 	if *version {
-		fmt.Printf("Natrium server version: %s\n", Version)
+		fmt.Printf("Kakitu wallet server version: %s\n", Version)
 		os.Exit(0)
 	}
 
@@ -179,11 +179,9 @@ func main() {
 	}
 
 	// Setup controllers
-	pricePrefix := "nano"
-	if *bananoMode {
-		pricePrefix = "banano"
-	}
-	hc := controller.HttpController{RPCClient: &rpcClient, BananoMode: *bananoMode, FcmTokenRepo: fcmRepo, FcmClient: fcmClient}
+	pricePrefix := "kshs"
+	_ = bananoMode // unused in Kakitu mode
+	hc := controller.HttpController{RPCClient: &rpcClient, BananoMode: false, FcmTokenRepo: fcmRepo, FcmClient: fcmClient}
 
 	// Get RATE_LIMIT_WHITELIST from env
 	rateLimitWhitelist := strings.Split(utils.GetEnv("RATE_LIMIT_WHITELIST", ""), ",")
@@ -248,7 +246,7 @@ func main() {
 	})
 
 	// Setup WS endpoint
-	wsHub := controller.NewHub(*bananoMode, &rpcClient, fcmRepo)
+	wsHub := controller.NewHub(false, &rpcClient, fcmRepo)
 	go wsHub.Run()
 	app.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		controller.WebsocketChl(wsHub, w, r)
@@ -256,7 +254,7 @@ func main() {
 
 	var sio *socketio.Server
 	if *socketIoServer {
-		// Socket.io endpoint is only for natrium.io/donate
+		// Socket.io endpoint for donation tracking
 		sio = socketio.NewServer(&engineio.Options{
 			Transports: []transport.Transport{
 				&polling.Transport{
@@ -322,7 +320,8 @@ func main() {
 
 			// for socket.io
 			if sio != nil {
-				if msg.Block.LinkAsAccount == "nano_1natrium1o3z5519ifou7xii8crpxpk8y65qmkih8e8bpsjri651oza8imdd" && msg.Block.Subtype == "send" && msg.Amount != "" {
+				donationAccount := utils.GetEnv("DONATION_ACCOUNT", "")
+				if donationAccount != "" && msg.Block.LinkAsAccount == donationAccount && msg.Block.Subtype == "send" && msg.Amount != "" {
 					sio.BroadcastToNamespace("/", "donation_event", map[string]interface{}{
 						"amount": msg.Amount,
 					})
@@ -335,7 +334,7 @@ func main() {
 	s := gocron.NewScheduler(time.UTC)
 
 	s.Every(60).Seconds().Do(func() {
-		// BTC and Nano price
+		// BTC and KSHS price
 		btcPrice, err := database.GetRedisDB().Hget("prices", fmt.Sprintf("coingecko:%s-btc", pricePrefix))
 		if err != nil {
 			klog.Errorf("Error getting btc price in cron: %v", err)
@@ -346,16 +345,7 @@ func main() {
 			klog.Errorf("Error parsing btc price in cron: %v", err)
 			return
 		}
-		var nanoPriceFloat float64
-		if *bananoMode {
-			nanoPriceStr, err := database.GetRedisDB().Hget("prices", fmt.Sprintf("coingecko:%s-nano", pricePrefix))
-			if err != nil {
-				klog.Errorf("Error getting nano price in cron: %v", err)
-				return
-			}
-			nanoPriceFloat, err = strconv.ParseFloat(nanoPriceStr, 64)
-		}
-		for client, _ := range wsHub.Clients {
+		for client := range wsHub.Clients {
 			currency := client.Currency
 			curStr, err := database.GetRedisDB().Hget("prices", fmt.Sprintf("coingecko:%s-%s", pricePrefix, strings.ToLower(currency)))
 			if err != nil {
@@ -371,9 +361,6 @@ func main() {
 				Currency: currency,
 				Price:    curFloat,
 				BtcPrice: btcPriceFloat,
-			}
-			if *bananoMode {
-				priceMessage.NanoPrice = &nanoPriceFloat
 			}
 			serialized, err := json.Marshal(priceMessage)
 			if err != nil {

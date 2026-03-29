@@ -12,19 +12,22 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/appditto/natrium-wallet-server/config"
-	"github.com/appditto/natrium-wallet-server/database"
-	"github.com/appditto/natrium-wallet-server/models"
+	"github.com/kakitucurrency/kakitu-wallet-server/config"
+	"github.com/kakitucurrency/kakitu-wallet-server/database"
+	"github.com/kakitucurrency/kakitu-wallet-server/models"
 	"k8s.io/klog/v2"
 )
 
+// KES is included alongside the standard currency list
 var CurrencyList = []string{
-	"ARS", "AUD", "BRL", "BTC", "CAD", "CHF", "CLP", "CNY", "CZK", "DKK", "EUR", "GBP", "HKD", "HUF", "IDR", "ILS", "INR", "JPY", "KRW", "MXN", "MYR", "NOK", "NZD", "PHP", "PKR", "PLN", "RUB", "SEK", "SGD", "THB", "TRY", "TWD", "USD", "ZAR", "SAR", "AED", "KWD", "UAH",
+	"ARS", "AUD", "BRL", "BTC", "CAD", "CHF", "CLP", "CNY", "CZK", "DKK", "EUR", "GBP",
+	"HKD", "HUF", "IDR", "ILS", "INR", "JPY", "KES", "KRW", "MXN", "MYR", "NOK", "NZD",
+	"PHP", "PKR", "PLN", "RUB", "SEK", "SGD", "THB", "TRY", "TWD", "USD", "ZAR", "SAR",
+	"AED", "KWD", "UAH",
 }
 
 // Base request
 func MakeGetRequest(url string) ([]byte, error) {
-	// HTTP get
 	request, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		klog.Errorf("Error making request %s", err)
@@ -32,11 +35,10 @@ func MakeGetRequest(url string) ([]byte, error) {
 	}
 	resp, err := Client.Do(request)
 	if err != nil {
-		klog.Errorf("Error making coingecko request %s", err)
+		klog.Errorf("Error making GET request %s", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
-	// Try to decode+deserialize
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		klog.Errorf("Error decoding response body %s", err)
@@ -45,14 +47,11 @@ func MakeGetRequest(url string) ([]byte, error) {
 	return body, nil
 }
 
-// DolarTodayResponse structure based on expected JSON response
 func UpdateDolarTodayPrice() error {
-	// Data to be sent in POST request
 	data := url.Values{}
 	data.Set("action", "dt_currency_calculator_handler")
 	data.Set("amount", "1")
 
-	// Making the HTTP POST request
 	request, err := http.NewRequest(http.MethodPost, config.DOLARTODAY_URL, strings.NewReader(data.Encode()))
 	if err != nil {
 		klog.Errorf("Error creating request %s", err)
@@ -72,8 +71,6 @@ func UpdateDolarTodayPrice() error {
 		return err
 	}
 
-	fmt.Printf("Raw response: %s\n", string(body))
-
 	var dolarTodayResp map[string]string
 	err = json.Unmarshal(body, &dolarTodayResp)
 	if err != nil {
@@ -81,14 +78,12 @@ func UpdateDolarTodayPrice() error {
 		return err
 	}
 
-	// Extracting the "Dólar Bitcoin" value
 	bitcoinValueStr, ok := dolarTodayResp["Dólar Bitcoin"]
 	if !ok || bitcoinValueStr == "" {
 		klog.Errorf("Invalid or missing 'Dólar Bitcoin' in response")
 		return errors.New("invalid response data")
 	}
 
-	// Use regular expression to extract the numeric part
 	re := regexp.MustCompile(`\d+\.\d+`)
 	match := re.FindString(bitcoinValueStr)
 	if match == "" {
@@ -96,17 +91,15 @@ func UpdateDolarTodayPrice() error {
 		return errors.New("no numeric value found")
 	}
 
-	fmt.Printf("%s %s\n", "DolarToday USD-VES:", match)
-
+	fmt.Printf("DolarToday USD-VES: %s\n", match)
 	database.GetRedisDB().Hset("prices", "dolartoday:usd-ves", match)
-
 	return nil
 }
 
 func UpdateDolarSiPrice() error {
 	rawResp, err := MakeGetRequest(config.DOLARSI_URL)
 	if err != nil {
-		klog.Errorf("Error making dolar today request %s", err)
+		klog.Errorf("Error making dolar si request %s", err)
 		return err
 	}
 	var dolarsiResponse models.DolarsiResponse
@@ -117,175 +110,115 @@ func UpdateDolarSiPrice() error {
 	}
 
 	if len(dolarsiResponse) < 2 {
-		klog.Errorf("Error getting dolar si price")
 		return errors.New("DolarSi response unexpected length")
 	} else if dolarsiResponse[1].Casa.Venta == "" {
-		klog.Errorf("Error getting dolar si price")
 		return errors.New("DolarSi response price was empty")
 	}
 	price_ars := strings.ReplaceAll(dolarsiResponse[1].Casa.Venta, ".", "")
 	price_ars = strings.ReplaceAll(price_ars, ",", ".")
-	fmt.Printf("%s %s\n", "DolarSi USD-ARS", price_ars)
+	fmt.Printf("DolarSi USD-ARS: %s\n", price_ars)
 	database.GetRedisDB().Hset("prices", "dolarsi:usd-ars", price_ars)
-
 	return nil
 }
 
+// UpdateNanoCoingeckoPrices updates KSHS prices using the coingecko:kshs-* Redis key prefix.
+// When KSHS is listed on CoinGecko, KSHS_CG_URL in config/coingecko.go will return live data.
+// Until then, prices are seeded via the KES exchange rate (1 KSHS ≈ 1 KES).
 func UpdateNanoCoingeckoPrices() error {
-	klog.Info("Updating nano prices\n")
-	rawResp, err := MakeGetRequest(config.NANO_CG_URL)
+	klog.Info("Updating KSHS prices\n")
+	rawResp, err := MakeGetRequest(config.KSHS_CG_URL)
 	if err != nil {
-		return err
+		// KSHS not on CoinGecko yet — seed with KES-pegged prices instead
+		klog.Warningf("CoinGecko KSHS not available (%v), seeding KES-pegged prices", err)
+		return seedKshsPricesFromKes()
 	}
 	var cgResp models.CoingeckoResponse
 	if err := json.Unmarshal(rawResp, &cgResp); err != nil {
 		klog.Errorf("Error unmarshalling coingecko response %v", err)
-		return err
+		return seedKshsPricesFromKes()
 	}
 
 	for _, currency := range CurrencyList {
 		data_name := strings.ToLower(currency)
 		if val, ok := cgResp.MarketData.CurrentPrice[data_name]; ok {
-			fmt.Printf("%s %f\n", "Coingecko NANO-"+currency, val)
-			database.GetRedisDB().Hset("prices", "coingecko:nano-"+data_name, val)
-		} else {
-			klog.Errorf("Error getting coingecko price for %s", data_name)
+			fmt.Printf("Coingecko KSHS-%s: %f\n", currency, val)
+			database.GetRedisDB().Hset("prices", "coingecko:kshs-"+data_name, val)
 		}
 	}
 
-	usdPrice, err := database.GetRedisDB().Hget("prices", "coingecko:nano-usd")
+	usdPrice, err := database.GetRedisDB().Hget("prices", "coingecko:kshs-usd")
 	if err != nil {
-		klog.Errorf("Error getting coingecko price for nano-usd %s", err)
 		return err
 	}
 	usdPriceFloat, err := strconv.ParseFloat(usdPrice, 64)
 	if err != nil {
-		klog.Errorf("Error parsing coingecko price for nano-usd %s", err)
 		return err
 	}
-	bolivarPrice, err := database.GetRedisDB().Hget("prices", "dolartoday:usd-ves")
-	if err != nil {
-		klog.Errorf("Error getting coingecko price for nano-usd %s", err)
-		return err
-	}
-	bolivarPriceFloat, err := strconv.ParseFloat(bolivarPrice, 64)
-	if err != nil {
-		klog.Errorf("Error parsing coingecko price for nano-ves %s", err)
-		return err
-	}
-	convertedves := usdPriceFloat * bolivarPriceFloat
-	if err := database.GetRedisDB().Hset("prices", "coingecko:nano-ves", convertedves); err != nil {
-		klog.Errorf("Error setting coingecko price for nano-ves %s", err)
-		return err
-	}
-	fmt.Printf("%s %f\n", "Coingecko NANO-VES", convertedves)
 
-	// # Convert to ARS
+	// VES conversion
+	bolivarPrice, err := database.GetRedisDB().Hget("prices", "dolartoday:usd-ves")
+	if err == nil {
+		if bolivarPriceFloat, err := strconv.ParseFloat(bolivarPrice, 64); err == nil {
+			convertedves := usdPriceFloat * bolivarPriceFloat
+			database.GetRedisDB().Hset("prices", "coingecko:kshs-ves", convertedves)
+			fmt.Printf("Coingecko KSHS-VES: %f\n", convertedves)
+		}
+	}
+
+	// ARS conversion
 	arsPrice, err := database.GetRedisDB().Hget("prices", "dolarsi:usd-ars")
-	if err != nil {
-		klog.Errorf("Error getting coingecko price for nano-usd %s", err)
-		return err
+	if err == nil {
+		if arsPriceFloat, err := strconv.ParseFloat(arsPrice, 64); err == nil {
+			convertedars := usdPriceFloat * arsPriceFloat
+			database.GetRedisDB().Hset("prices", "coingecko:kshs-ars", convertedars)
+			fmt.Printf("Coingecko KSHS-ARS: %f\n", convertedars)
+		}
 	}
-	arsPriceFloat, err := strconv.ParseFloat(arsPrice, 64)
-	if err != nil {
-		klog.Errorf("Error parsing coingecko price for nano-ves %s", err)
-		return err
-	}
-	convertedars := usdPriceFloat * arsPriceFloat
-	if err := database.GetRedisDB().Hset("prices", "coingecko:nano-ars", convertedars); err != nil {
-		klog.Errorf("Error setting coingecko price for nano-ves %s", err)
-		return err
-	}
-	fmt.Printf("%s %f\n", "Coingecko NANO-ARS", convertedars)
 
 	return nil
 }
 
-func UpdateBananoCoingeckoPrices() error {
-	klog.Info("Updating BANANO prices\n")
-	rawResp, err := MakeGetRequest(config.BANANO_CG_URL)
+// seedKshsPricesFromKes seeds Redis price keys assuming 1 KSHS = 1 KES.
+// Fetches current KES/USD rate from exchangerate-api and derives all fiat prices.
+func seedKshsPricesFromKes() error {
+	rateUrl := config.DEFAULT_KES_EXCHANGE_RATE_URL
+	body, err := MakeGetRequest(rateUrl)
 	if err != nil {
+		klog.Errorf("Error fetching KES exchange rate: %v", err)
 		return err
 	}
-	var cgResp models.CoingeckoResponse
-	if err := json.Unmarshal(rawResp, &cgResp); err != nil {
-		klog.Errorf("Error unmarshalling coingecko response %v", err)
+	var rateResp struct {
+		Rates map[string]float64 `json:"rates"`
+	}
+	if err := json.Unmarshal(body, &rateResp); err != nil {
+		klog.Errorf("Error parsing KES exchange rate response: %v", err)
 		return err
 	}
+	// KES per 1 USD
+	kesPerUsd, ok := rateResp.Rates["KES"]
+	if !ok || kesPerUsd == 0 {
+		return errors.New("KES rate not found in exchange rate response")
+	}
+	// 1 KSHS = 1 KES, so 1 KSHS = (1/kesPerUsd) USD
+	kshsUsd := 1.0 / kesPerUsd
 
 	for _, currency := range CurrencyList {
-		data_name := strings.ToLower(currency)
-		if val, ok := cgResp.MarketData.CurrentPrice[data_name]; ok {
-			fmt.Printf("%s %f\n", "Coingecko BANANO-"+currency, val)
-			database.GetRedisDB().Hset("prices", "coingecko:banano-"+data_name, val)
-		} else {
-			klog.Errorf("Error getting coingecko price for %s", data_name)
+		ccy := strings.ToUpper(currency)
+		if rate, ok := rateResp.Rates[ccy]; ok && rate != 0 {
+			// price of 1 KSHS in `currency` = (1 KSHS in USD) * (currency per USD)
+			price := kshsUsd * rate
+			data_name := strings.ToLower(currency)
+			database.GetRedisDB().Hset("prices", "coingecko:kshs-"+data_name, price)
+			fmt.Printf("KSHS-%s (KES-pegged): %f\n", ccy, price)
 		}
 	}
+	// KES itself is always 1
+	database.GetRedisDB().Hset("prices", "coingecko:kshs-kes", 1.0)
+	fmt.Printf("KSHS-KES: 1.000000 (pegged)\n")
+	return nil
+}
 
-	usdPrice, err := database.GetRedisDB().Hget("prices", "coingecko:banano-usd")
-	if err != nil {
-		klog.Errorf("Error getting coingecko price for banano-usd %s", err)
-		return err
-	}
-	usdPriceFloat, err := strconv.ParseFloat(usdPrice, 64)
-	if err != nil {
-		klog.Errorf("Error parsing coingecko price for banano-usd %s", err)
-		return err
-	}
-	bolivarPrice, err := database.GetRedisDB().Hget("prices", "dolartoday:usd-ves")
-	if err != nil {
-		klog.Errorf("Error getting coingecko price for banano-usd %s", err)
-		return err
-	}
-	bolivarPriceFloat, err := strconv.ParseFloat(bolivarPrice, 64)
-	if err != nil {
-		klog.Errorf("Error parsing coingecko price for banano-ves %s", err)
-		return err
-	}
-	convertedves := usdPriceFloat * bolivarPriceFloat
-	if err := database.GetRedisDB().Hset("prices", "coingecko:banano-ves", convertedves); err != nil {
-		klog.Errorf("Error setting coingecko price for banano-ves %s", err)
-		return err
-	}
-	fmt.Printf("%s %f\n", "Coingecko BANANO-VES", convertedves)
-
-	// # Convert to ARS
-	arsPrice, err := database.GetRedisDB().Hget("prices", "dolarsi:usd-ars")
-	if err != nil {
-		klog.Errorf("Error getting coingecko price for banano-usd %s", err)
-		return err
-	}
-	arsPriceFloat, err := strconv.ParseFloat(arsPrice, 64)
-	if err != nil {
-		klog.Errorf("Error parsing coingecko price for banano-ves %s", err)
-		return err
-	}
-	convertedars := usdPriceFloat * arsPriceFloat
-	if err := database.GetRedisDB().Hset("prices", "coingecko:banano-ars", convertedars); err != nil {
-		klog.Errorf("Error setting coingecko price for banano-ves %s", err)
-		return err
-	}
-	fmt.Printf("%s %f\n", "Coingecko BANANO-ARS", convertedars)
-
-	// Nano price
-	// nanoprice = float(rdata.hget("prices", "coingecko:banano-btc")) / float(rdata.hget("prices", "coingecko:nano-btc"))
-	// rdata.hset("prices", "coingecko:banano-nano", f"{nanoprice:.16f}")
-	nanoprice, err := database.GetRedisDB().Hget("prices", "coingecko:nano-btc")
-	if err != nil {
-		klog.Errorf("Error getting price for nano-btc from redis %s", err)
-		return err
-	}
-	nanopriceFloat, err := strconv.ParseFloat(nanoprice, 64)
-	if err != nil {
-		klog.Errorf("Error parsing price for nano-btc from redis %s", err)
-		return err
-	}
-	nanoBanPrice := cgResp.MarketData.CurrentPrice["btc"] / nanopriceFloat
-	if err := database.GetRedisDB().Hset("prices", "coingecko:banano-nano", nanoBanPrice); err != nil {
-		klog.Errorf("Error setting price for banano-nano %s", err)
-		return err
-	}
-
+// UpdateBananoCoingeckoPrices is kept as a no-op for API compatibility
+func UpdateBananoCoingeckoPrices() error {
 	return nil
 }
