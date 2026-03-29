@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"os"
 
@@ -31,6 +32,9 @@ type fixedReader struct {
 }
 
 func (r *fixedReader) Read(p []byte) (int, error) {
+	if r.pos >= len(r.data) {
+		return 0, io.EOF
+	}
 	n := copy(p, r.data[r.pos:])
 	r.pos += n
 	return n, nil
@@ -105,17 +109,19 @@ func PubKeyToAddress(pubKey []byte) (string, error) {
 	return "kshs_" + keyStr + checksumStr, nil
 }
 
-// KesToRaw converts a KES amount string (e.g. "100") to raw units (multiply by 10^30).
-func KesToRaw(amountKES string) (*big.Int, error) {
-	amount, ok := new(big.Int).SetString(amountKES, 10)
-	if !ok {
-		return nil, fmt.Errorf("treasury: invalid KES amount %q", amountKES)
-	}
+// kshsRawPerUnit is 10^30, the number of raw units in 1 KSHS.
+var kshsRawPerUnit, _ = new(big.Int).SetString("1000000000000000000000000000000", 10)
 
-	// 1 KSHS = 10^30 raw
-	multiplier := new(big.Int).Exp(big.NewInt(10), big.NewInt(30), nil)
-	raw := new(big.Int).Mul(amount, multiplier)
-	return raw, nil
+// KesToRaw converts a KES amount string (e.g. "100" or "100.5") to raw units (multiply by 10^30).
+func KesToRaw(amountKES string) (*big.Int, error) {
+	f, ok := new(big.Float).SetString(amountKES)
+	if !ok {
+		return nil, fmt.Errorf("invalid amount: %s", amountKES)
+	}
+	rawPerUnit := new(big.Float).SetInt(kshsRawPerUnit)
+	rawFloat := new(big.Float).Mul(f, rawPerUnit)
+	rawInt, _ := rawFloat.Int(nil)
+	return rawInt, nil
 }
 
 // SendKSHS constructs, signs, and broadcasts a KSHS send block from the treasury
