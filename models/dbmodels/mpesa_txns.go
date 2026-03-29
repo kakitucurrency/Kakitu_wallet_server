@@ -10,6 +10,6 @@ type MpesaTransaction struct {
 	KshsAddress   string          `json:"kshs_address" gorm:"not null"`
 	MerchantReqID string          `json:"merchant_req_id" gorm:"uniqueIndex"`
 	MpesaReceipt  string          `json:"mpesa_receipt"`
-	TxHash        string          `json:"tx_hash" gorm:"uniqueIndex"`
+	TxHash        string          `json:"tx_hash" gorm:"uniqueIndex:idx_mpesa_tx_hash,where:tx_hash <> ''"`
 	Status        string          `json:"status" gorm:"not null;default:'pending'"`
 }

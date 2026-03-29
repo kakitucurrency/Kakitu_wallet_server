@@ -14,7 +14,10 @@ import (
 // phone must be in format 2547XXXXXXXX. amountKES is an integer string e.g. "100".
 // Returns the ConversationID on success.
 func InitiateB2C(token, phone, amountKES, callbackURL string) (string, error) {
-	shortCode := utils.GetEnv("MPESA_SHORTCODE", "174379")
+	shortCode := utils.GetEnv("MPESA_SHORTCODE", "")
+	if shortCode == "" {
+		return "", fmt.Errorf("MPESA_SHORTCODE must be set")
+	}
 	initiatorName := utils.GetEnv("MPESA_B2C_INITIATOR", "testapi")
 	securityCred := utils.GetEnv("MPESA_B2C_SECURITY_CRED", "")
 	if securityCred == "" {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/render"
 	"github.com/kakitucurrency/kakitu-wallet-server/mpesa"
@@ -134,7 +135,8 @@ func (mc *MpesaController) HandleCashInCallback(w http.ResponseWriter, r *http.R
 	}
 
 	if err := utils.SendKSHS(mc.RPCClient, txn.KshsAddress, amountRaw); err != nil {
-		_ = mc.MpesaTxnRepo.UpdateStatus(checkoutRequestID, "failed", "")
+		klog.Errorf("SendKSHS to %s failed (check treasury balance): %v", txn.KshsAddress, err)
+		_ = mc.MpesaTxnRepo.UpdateStatus(cb.CheckoutRequestID, "failed", receipt)
 		return
 	}
 
@@ -196,6 +198,11 @@ func (mc *MpesaController) HandleCashOut(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if block.Confirmed != "true" {
+		ErrBadrequest(w, r, "block is not confirmed")
+		return
+	}
+
 	if block.Subtype != "send" {
 		ErrBadrequest(w, r, "block subtype must be 'send'")
 		return
@@ -232,7 +239,13 @@ func (mc *MpesaController) HandleCashOut(w http.ResponseWriter, r *http.Request)
 
 	amountDec := decimal.NewFromInt(amount)
 	if _, err := mc.MpesaTxnRepo.CreatePendingCashOut(amountDec, block.BlockAccount, req.TxHash, conversationID); err != nil {
-		ErrInternalServerError(w, r, fmt.Sprintf("failed to save transaction: %s", err))
+		klog.Errorf("Saving cash-out txn: %v", err)
+		if strings.Contains(err.Error(), "23505") || strings.Contains(err.Error(), "unique") {
+			render.Status(r, http.StatusConflict)
+			render.JSON(w, r, map[string]string{"error": "tx_hash already used"})
+			return
+		}
+		ErrInternalServerError(w, r, "Failed to save transaction")
 		return
 	}
 

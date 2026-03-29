@@ -16,8 +16,11 @@ import (
 // phone must be in format 2547XXXXXXXX. amountKES is an integer string e.g. "100".
 // Returns the CheckoutRequestID on success.
 func InitiateSTKPush(token, phone, amountKES, callbackURL string) (string, error) {
-	shortCode := utils.GetEnv("MPESA_SHORTCODE", "174379")
-	passKey := utils.GetEnv("MPESA_PASSKEY", "bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919")
+	shortCode := utils.GetEnv("MPESA_SHORTCODE", "")
+	passKey := utils.GetEnv("MPESA_PASSKEY", "")
+	if shortCode == "" || passKey == "" {
+		return "", fmt.Errorf("MPESA_SHORTCODE and MPESA_PASSKEY must be set")
+	}
 
 	timestamp := time.Now().Format("20060102150405")
 	rawPassword := shortCode + passKey + timestamp
