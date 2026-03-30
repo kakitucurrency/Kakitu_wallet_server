@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/render"
+	"regexp"
 	"github.com/kakitucurrency/kakitu-wallet-server/mpesa"
 	"github.com/kakitucurrency/kakitu-wallet-server/net"
 	"github.com/kakitucurrency/kakitu-wallet-server/repository"
@@ -28,6 +29,30 @@ type cashInRequest struct {
 	Phone       string `json:"phone"`
 	AmountKES   string `json:"amount_kes"`
 	KshsAddress string `json:"kshs_address"`
+}
+
+// normalizePhone converts Kenyan phone numbers to the 2547XXXXXXXX format
+// required by Safaricom Daraja. Accepts 07XXXXXXXX, +2547XXXXXXXX, 2547XXXXXXXX.
+func normalizePhone(phone string) (string, error) {
+	digits := regexp.MustCompile(`\D`).ReplaceAllString(phone, "")
+	switch {
+	case strings.HasPrefix(digits, "254") && len(digits) == 12:
+		return digits, nil
+	case strings.HasPrefix(digits, "0") && len(digits) == 10:
+		return "254" + digits[1:], nil
+	case len(digits) == 9:
+		return "254" + digits, nil
+	default:
+		return "", fmt.Errorf("unrecognised phone format: %s", phone)
+	}
+}
+
+// HandleConfig returns public M-Pesa configuration (treasury address).
+// GET /mpesa/config
+func (mc *MpesaController) HandleConfig(w http.ResponseWriter, r *http.Request) {
+	render.JSON(w, r, map[string]string{
+		"treasury_address": utils.GetEnv("TREASURY_ADDRESS", ""),
+	})
 }
 
 // HandleCashIn initiates an STK Push to collect KES from the user's phone.
@@ -52,6 +77,12 @@ func (mc *MpesaController) HandleCashIn(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	phone, err := normalizePhone(req.Phone)
+	if err != nil {
+		ErrBadrequest(w, r, fmt.Sprintf("invalid phone: %s", err))
+		return
+	}
+
 	amount, err := strconv.ParseInt(req.AmountKES, 10, 64)
 	if err != nil || amount <= 0 {
 		ErrBadrequest(w, r, "amount_kes must be a positive integer")
@@ -65,7 +96,7 @@ func (mc *MpesaController) HandleCashIn(w http.ResponseWriter, r *http.Request) 
 	}
 
 	callbackURL := utils.GetEnv("MPESA_CALLBACK_URL", "")
-	checkoutID, err := mpesa.InitiateSTKPush(token, req.Phone, req.AmountKES, callbackURL)
+	checkoutID, err := mpesa.InitiateSTKPush(token, phone, req.AmountKES, callbackURL)
 	if err != nil {
 		ErrInternalServerError(w, r, fmt.Sprintf("STK Push failed: %s", err))
 		return
@@ -173,6 +204,12 @@ func (mc *MpesaController) HandleCashOut(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	phone, err := normalizePhone(req.Phone)
+	if err != nil {
+		ErrBadrequest(w, r, fmt.Sprintf("invalid phone: %s", err))
+		return
+	}
+
 	amount, err := strconv.ParseInt(req.AmountKES, 10, 64)
 	if err != nil || amount <= 0 {
 		ErrBadrequest(w, r, "amount_kes must be a positive integer")
@@ -231,7 +268,7 @@ func (mc *MpesaController) HandleCashOut(w http.ResponseWriter, r *http.Request)
 	}
 
 	callbackURL := utils.GetEnv("MPESA_CALLBACK_URL", "")
-	conversationID, err := mpesa.InitiateB2C(token, req.Phone, req.AmountKES, callbackURL)
+	conversationID, err := mpesa.InitiateB2C(token, phone, req.AmountKES, callbackURL)
 	if err != nil {
 		ErrInternalServerError(w, r, fmt.Sprintf("B2C initiation failed: %s", err))
 		return

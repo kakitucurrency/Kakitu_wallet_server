@@ -229,6 +229,7 @@ func main() {
 
 	// M-Pesa Daraja routes
 	app.Route("/mpesa", func(r chi.Router) {
+		r.Get("/config", mc.HandleConfig)
 		r.Post("/cashin", mc.HandleCashIn)
 		r.Post("/cashin/callback", mc.HandleCashInCallback)
 		r.Post("/cashout", mc.HandleCashOut)
