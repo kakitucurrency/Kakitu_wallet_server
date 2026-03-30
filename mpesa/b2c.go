@@ -63,10 +63,10 @@ func InitiateB2C(token, phone, amountKES, callbackURL string) (string, error) {
 
 	var b2cResp B2CResponse
 	if err := json.Unmarshal(respBody, &b2cResp); err != nil {
-		return "", fmt.Errorf("parsing B2C response: %w", err)
+		return "", fmt.Errorf("parsing B2C response: %w (raw: %s)", err, string(respBody))
 	}
 	if b2cResp.ResponseCode != "0" {
-		return "", fmt.Errorf("B2C failed: %s", b2cResp.ResponseDescription)
+		return "", fmt.Errorf("B2C failed (code=%s): %s | raw: %s", b2cResp.ResponseCode, b2cResp.ResponseDescription, string(respBody))
 	}
 
 	return b2cResp.ConversationID, nil
