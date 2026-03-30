@@ -30,6 +30,10 @@ type STKPushResponse struct {
 	ResponseCode        string `json:"ResponseCode"`
 	ResponseDescription string `json:"ResponseDescription"`
 	CustomerMessage     string `json:"CustomerMessage"`
+	// Daraja error fields (returned when the request itself is rejected)
+	ErrorCode    string `json:"errorCode"`
+	ErrorMessage string `json:"errorMessage"`
+	RequestID    string `json:"requestId"`
 }
 
 // STKCallbackBody is what Safaricom POSTs to /mpesa/cashin/callback

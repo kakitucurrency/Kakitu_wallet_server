@@ -66,10 +66,15 @@ func InitiateSTKPush(token, phone, amountKES, callbackURL string) (string, error
 
 	var stkResp STKPushResponse
 	if err := json.Unmarshal(respBody, &stkResp); err != nil {
-		return "", fmt.Errorf("parsing STK response: %w", err)
+		return "", fmt.Errorf("parsing STK response (%s): %w", string(respBody), err)
+	}
+
+	// Daraja returns errorCode/errorMessage when the request is rejected outright
+	if stkResp.ErrorCode != "" {
+		return "", fmt.Errorf("Daraja error %s: %s (raw: %s)", stkResp.ErrorCode, stkResp.ErrorMessage, string(respBody))
 	}
 	if stkResp.ResponseCode != "0" {
-		return "", fmt.Errorf("STK Push failed: %s", stkResp.ResponseDescription)
+		return "", fmt.Errorf("STK Push failed (code=%s): %s (raw: %s)", stkResp.ResponseCode, stkResp.ResponseDescription, string(respBody))
 	}
 
 	return stkResp.CheckoutRequestID, nil
