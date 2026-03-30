@@ -53,16 +53,17 @@ type STKCallbackBody struct {
 // ── B2C ───────────────────────────────────────────────────────────────────────
 
 type B2CRequest struct {
-	InitiatorName      string `json:"InitiatorName"`
-	SecurityCredential string `json:"SecurityCredential"`
-	CommandID          string `json:"CommandID"`
-	Amount             string `json:"Amount"`
-	PartyA             string `json:"PartyA"`
-	PartyB             string `json:"PartyB"`
-	Remarks            string `json:"Remarks"`
-	QueueTimeOutURL    string `json:"QueueTimeOutURL"`
-	ResultURL          string `json:"ResultURL"`
-	Occasion           string `json:"Occasion"`
+	OriginatorConversationID string `json:"OriginatorConversationID"`
+	InitiatorName            string `json:"InitiatorName"`
+	SecurityCredential       string `json:"SecurityCredential"`
+	CommandID                string `json:"CommandID"`
+	Amount                   string `json:"Amount"`
+	PartyA                   string `json:"PartyA"`
+	PartyB                   string `json:"PartyB"`
+	Remarks                  string `json:"Remarks"`
+	QueueTimeOutURL          string `json:"QueueTimeOutURL"`
+	ResultURL                string `json:"ResultURL"`
+	Occasion                 string `json:"Occasion"`
 }
 
 type B2CResponse struct {

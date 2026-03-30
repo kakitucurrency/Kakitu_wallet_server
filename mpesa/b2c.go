@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/kakitucurrency/kakitu-wallet-server/utils"
 )
 
@@ -25,16 +26,17 @@ func InitiateB2C(token, phone, amountKES, callbackURL string) (string, error) {
 	}
 
 	payload := B2CRequest{
-		InitiatorName:      initiatorName,
-		SecurityCredential: securityCred,
-		CommandID:          "BusinessPayment",
-		Amount:             amountKES,
-		PartyA:             shortCode,
-		PartyB:             phone,
-		Remarks:            "Kakitu Cash Out",
-		QueueTimeOutURL:    callbackURL + "/mpesa/cashout/callback",
-		ResultURL:          callbackURL + "/mpesa/cashout/callback",
-		Occasion:           "CashOut",
+		OriginatorConversationID: uuid.New().String(),
+		InitiatorName:            initiatorName,
+		SecurityCredential:       securityCred,
+		CommandID:                "BusinessPayment",
+		Amount:                   amountKES,
+		PartyA:                   shortCode,
+		PartyB:                   phone,
+		Remarks:                  "Kakitu Cash Out",
+		QueueTimeOutURL:          callbackURL + "/mpesa/cashout/callback",
+		ResultURL:                callbackURL + "/mpesa/cashout/callback",
+		Occasion:                 "CashOut",
 	}
 
 	body, err := json.Marshal(payload)
