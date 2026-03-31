@@ -248,11 +248,13 @@ func (hc *HttpController) HandleAction(w http.ResponseWriter, r *http.Request) {
 				difficultyMultiplier = 1
 			} else if processRequestJsonBlock.SubType == nil {
 				// Default to receive difficulty when subtype is not provided
-				difficultyMultiplier = 1
+				// Kakitu requires 8x Nano base difficulty (ffffffc000000000)
+				difficultyMultiplier = 8
 			} else if slices.Contains([]string{"change", "send"}, *processRequestJsonBlock.SubType) {
 				difficultyMultiplier = 64
 			} else {
-				difficultyMultiplier = 1
+				// receive/open: Kakitu requires 8x Nano base difficulty (ffffffc000000000)
+				difficultyMultiplier = 8
 			}
 			if doWork {
 				work, err := hc.RPCClient.WorkGenerate(workBase, difficultyMultiplier)

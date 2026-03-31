@@ -182,7 +182,7 @@ func (client *RPCClient) WorkGenerate(hash string, difficultyMultiplier int) (st
 func (client *RPCClient) httpWorkGenerate(ctx context.Context, hash string, difficultyMultiplier int, results chan<- workResult, errors chan<- error) {
 	difficulty := "fffffff800000000"
 	if difficultyMultiplier < 64 {
-		difficulty = "fffffe0000000000"
+		difficulty = "ffffffc000000000"
 	}
 
 	request := models.WorkGenerate{
