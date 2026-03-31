@@ -247,8 +247,8 @@ func (hc *HttpController) HandleAction(w http.ResponseWriter, r *http.Request) {
 			if hc.BananoMode {
 				difficultyMultiplier = 1
 			} else if processRequestJsonBlock.SubType == nil {
-				// ! TODO - would be good to check if this is a send or receive if subtype isn't included
-				difficultyMultiplier = 64
+				// Default to receive difficulty when subtype is not provided
+				difficultyMultiplier = 1
 			} else if slices.Contains([]string{"change", "send"}, *processRequestJsonBlock.SubType) {
 				difficultyMultiplier = 64
 			} else {
