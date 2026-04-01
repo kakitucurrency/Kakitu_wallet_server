@@ -360,7 +360,13 @@ func (hc *HttpController) HandleHTTPCallback(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Supports push notificaiton
+	// Only process send blocks for push notifications
+	if callbackBlock.Subtype != "send" {
+		render.Status(r, http.StatusOK)
+		return
+	}
+
+	// Supports push notification
 	if hc.FcmClient == nil {
 		render.Status(r, http.StatusOK)
 		return
@@ -444,9 +450,8 @@ func (hc *HttpController) HandleHTTPCallback(w http.ResponseWriter, r *http.Requ
 			}
 			_, err := hc.FcmClient.Send(msg)
 			if err != nil {
-				klog.Errorf("Error sending notification %s", err)
-				render.Status(r, http.StatusOK)
-				return
+				klog.Errorf("Error sending notification to token %s: %s", token.FcmToken, err)
+				continue // try remaining tokens instead of aborting
 			}
 		}
 	}

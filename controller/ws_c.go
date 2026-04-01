@@ -83,7 +83,7 @@ func NewHub(bananomode bool, rpcClient *net.RPCClient, fcmTokenRepo *repository.
 	if bananomode {
 		pricePrefix = "banano"
 	} else {
-		pricePrefix = "nano"
+		pricePrefix = "kshs"
 	}
 	return &Hub{
 		Broadcast:    make(chan []byte),
@@ -123,7 +123,11 @@ func (h *Hub) Run() {
 func (h *Hub) BroadcastToClient(client *Client, message []byte) {
 	client.mutex.Lock()
 	defer client.mutex.Unlock()
-	client.Send <- message
+	select {
+	case client.Send <- message:
+	default:
+		klog.Warningf("Client send buffer full, dropping message for %s", client.ID)
+	}
 }
 
 var (
@@ -204,11 +208,12 @@ func (c *Client) readPump() {
 			} else {
 				c.Currency = "USD"
 			}
-			// Force nano_ address
+			// Normalize address prefix
 			if !c.Hub.BananoMode {
-				// Ensure account has nano_ address
 				if strings.HasPrefix(subscribeRequest.Account, "xrb_") {
-					subscribeRequest.Account = fmt.Sprintf("nano_%s", strings.TrimPrefix(subscribeRequest.Account, "xrb_"))
+					subscribeRequest.Account = fmt.Sprintf("kshs_%s", strings.TrimPrefix(subscribeRequest.Account, "xrb_"))
+				} else if strings.HasPrefix(subscribeRequest.Account, "nano_") {
+					subscribeRequest.Account = fmt.Sprintf("kshs_%s", strings.TrimPrefix(subscribeRequest.Account, "nano_"))
 				}
 			}
 

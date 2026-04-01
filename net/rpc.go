@@ -166,17 +166,24 @@ func (client *RPCClient) WorkGenerate(hash string, difficultyMultiplier int) (st
 		go client.httpWorkGenerate(ctx, hash, difficultyMultiplier, results, errors)
 	}
 
-	select {
-	case res := <-results:
-		if res.source != "httpRequest" {
-			client.sendWorkCancel(hash) // Only send work cancel if the result did not come from HTTP request
+	// Collect results — first success wins, only fail if ALL providers fail
+	errCount := 0
+	var lastErr error
+	for errCount < chanSize {
+		select {
+		case res := <-results:
+			if res.source != "httpRequest" {
+				client.sendWorkCancel(hash)
+			}
+			return res.result, nil
+		case err := <-errors:
+			errCount++
+			lastErr = err
+		case <-ctx.Done():
+			return "", ctx.Err()
 		}
-		return res.result, nil
-	case err := <-errors:
-		return "", err
-	case <-ctx.Done():
-		return "", ctx.Err()
 	}
+	return "", lastErr
 }
 
 func (client *RPCClient) httpWorkGenerate(ctx context.Context, hash string, difficultyMultiplier int, results chan<- workResult, errors chan<- error) {
