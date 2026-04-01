@@ -9,11 +9,16 @@ import (
 	"io"
 	"math/big"
 	"os"
+	"sync"
 
 	"github.com/kakitucurrency/kakitu-wallet-server/models"
 	"github.com/kakitucurrency/kakitu-wallet-server/utils/ed25519"
 	"golang.org/x/crypto/blake2b"
 )
+
+// treasuryMu serializes all treasury send operations. Concurrent calls to
+// SendKSHS would read the same frontier and produce conflicting blocks (a fork).
+var treasuryMu sync.Mutex
 
 // RPCRequester abstracts the subset of RPCClient methods used by SendKSHS,
 // allowing utils to avoid a direct import of the net package (which already
@@ -127,6 +132,10 @@ func KesToRaw(amountKES string) (*big.Int, error) {
 // SendKSHS constructs, signs, and broadcasts a KSHS send block from the treasury
 // wallet to destAddress for amountRaw raw units.
 func SendKSHS(rpcClient RPCRequester, destAddress string, amountRaw *big.Int) error {
+	// Serialize treasury sends to prevent frontier races that cause forks.
+	treasuryMu.Lock()
+	defer treasuryMu.Unlock()
+
 	// Step a: derive treasury keypair
 	privKey, pubKey, err := TreasuryKeyPair()
 	if err != nil {

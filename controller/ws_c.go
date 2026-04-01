@@ -51,7 +51,7 @@ type Client struct {
 	Accounts  []string // Subscribed accounts
 	Currency  string
 
-	mutex sync.Mutex
+	Mutex sync.Mutex
 }
 
 var Upgrader = websocket.Upgrader{
@@ -213,9 +213,26 @@ func (h *Hub) GetClients() []*Client {
 	return clients
 }
 
+// GetSubscribedAccounts returns the set of all accounts that any connected
+// client is currently subscribed to. Used for early-exit filtering of node WS
+// confirmations so we skip blocks that no client cares about.
+func (h *Hub) GetSubscribedAccounts() map[string]struct{} {
+	h.ClientsMu.RLock()
+	defer h.ClientsMu.RUnlock()
+	accounts := make(map[string]struct{})
+	for c := range h.Clients {
+		c.Mutex.Lock()
+		for _, a := range c.Accounts {
+			accounts[a] = struct{}{}
+		}
+		c.Mutex.Unlock()
+	}
+	return accounts
+}
+
 func (h *Hub) BroadcastToClient(client *Client, message []byte) {
-	client.mutex.Lock()
-	defer client.mutex.Unlock()
+	client.Mutex.Lock()
+	defer client.Mutex.Unlock()
 	select {
 	case client.Send <- message:
 	default:
@@ -304,12 +321,14 @@ func (c *Client) readPump() {
 				// Create a UUID for this subscription
 				c.ID = uuid.New()
 			}
-			// Get curency
+			// Get curency (protected by mutex — read from price cron).
+			c.Mutex.Lock()
 			if subscribeRequest.Currency != nil && slices.Contains(net.CurrencyList, strings.ToUpper(*subscribeRequest.Currency)) {
 				c.Currency = strings.ToUpper(*subscribeRequest.Currency)
 			} else {
 				c.Currency = "USD"
 			}
+			c.Mutex.Unlock()
 			// Normalize address prefix
 			if !c.Hub.BananoMode {
 				if strings.HasPrefix(subscribeRequest.Account, "xrb_") {
@@ -329,10 +348,13 @@ func (c *Client) readPump() {
 				continue
 			}
 
-			// Add account to tracker
+			// Add account to tracker (protected by mutex — Accounts is read
+			// from the callback goroutine and price cron concurrently).
+			c.Mutex.Lock()
 			if !slices.Contains(c.Accounts, subscribeRequest.Account) {
 				c.Accounts = append(c.Accounts, subscribeRequest.Account)
 			}
+			c.Mutex.Unlock()
 
 			// Get price info to include in response
 			priceCur, err := database.GetRedisDB().Hget("prices", fmt.Sprintf("coingecko:%s-%s", c.Hub.PricePrefix, strings.ToLower(c.Currency)))

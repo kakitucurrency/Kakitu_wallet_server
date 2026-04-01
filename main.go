@@ -340,6 +340,17 @@ func main() {
 			if msg.Block.Subtype != "send" {
 				continue
 			}
+
+			// Early exit: skip blocks whose destination is not subscribed by
+			// any connected client. This avoids O(blocks*clients) work at scale.
+			subscribedAccounts := wsHub.GetSubscribedAccounts()
+			donationAccount := utils.GetEnv("DONATION_ACCOUNT", "")
+			_, destSubscribed := subscribedAccounts[msg.Block.LinkAsAccount]
+			isDonation := sio != nil && donationAccount != "" && msg.Block.LinkAsAccount == donationAccount
+			if !destSubscribed && !isDonation {
+				continue
+			}
+
 			callbackMsg := map[string]interface{}{
 				"account": msg.Account,
 				"block":   msg.Block,
@@ -355,7 +366,11 @@ func main() {
 
 			// See if they are subscribed
 			for _, client := range wsHub.GetClients() {
-				for _, account := range client.Accounts {
+				client.Mutex.Lock()
+				accounts := make([]string, len(client.Accounts))
+				copy(accounts, client.Accounts)
+				client.Mutex.Unlock()
+				for _, account := range accounts {
 					if account == msg.Block.LinkAsAccount {
 						client.Hub.BroadcastToClient(client, serialized)
 					}
@@ -394,7 +409,9 @@ func main() {
 			return
 		}
 		for _, client := range wsHub.GetClients() {
+			client.Mutex.Lock()
 			currency := client.Currency
+			client.Mutex.Unlock()
 			curStr, err := database.GetRedisDB().Hget("prices", fmt.Sprintf("coingecko:%s-%s", pricePrefix, strings.ToLower(currency)))
 			if err != nil {
 				klog.Errorf("Error getting %s price in cron: %v", currency, err)

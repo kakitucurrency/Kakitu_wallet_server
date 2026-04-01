@@ -157,7 +157,9 @@ func (mc *MpesaController) HandleCashInCallback(w http.ResponseWriter, r *http.R
 	checkoutRequestID := cb.CheckoutRequestID
 
 	if cb.ResultCode != 0 {
-		_ = mc.MpesaTxnRepo.UpdateStatus(checkoutRequestID, "failed", "")
+		if err := mc.MpesaTxnRepo.UpdateStatus(checkoutRequestID, "failed", ""); err != nil {
+			klog.Errorf("ERROR: failed to update status for %s: %v", checkoutRequestID, err)
+		}
 		return
 	}
 
@@ -176,29 +178,44 @@ func (mc *MpesaController) HandleCashInCallback(w http.ResponseWriter, r *http.R
 
 	if receipt == "" {
 		klog.Errorf("Missing MpesaReceiptNumber in callback for %s", cb.CheckoutRequestID)
-		_ = mc.MpesaTxnRepo.UpdateStatus(cb.CheckoutRequestID, "failed", "")
+		if err := mc.MpesaTxnRepo.UpdateStatus(cb.CheckoutRequestID, "failed", ""); err != nil {
+			klog.Errorf("ERROR: failed to update status for %s: %v", cb.CheckoutRequestID, err)
+		}
 		return
 	}
 
-	txn, err := mc.MpesaTxnRepo.FindByMerchantReqID(checkoutRequestID)
+	// Atomically claim the pending transaction to prevent double-mint if
+	// Safaricom delivers the callback more than once.
+	txn, err := mc.MpesaTxnRepo.ClaimPendingTransaction(checkoutRequestID)
 	if err != nil {
-		_ = mc.MpesaTxnRepo.UpdateStatus(checkoutRequestID, "failed", "")
+		klog.Errorf("ClaimPendingTransaction failed for %s: %v", checkoutRequestID, err)
+		return
+	}
+	if txn == nil {
+		// No pending row — already processed or does not exist; nothing to do.
+		klog.Warningf("Duplicate or unknown cash-in callback for %s, skipping", checkoutRequestID)
 		return
 	}
 
 	amountRaw, err := utils.KesToRaw(txn.AmountKes.String())
 	if err != nil {
-		_ = mc.MpesaTxnRepo.UpdateStatus(checkoutRequestID, "failed", "")
+		if err := mc.MpesaTxnRepo.UpdateStatus(checkoutRequestID, "failed", ""); err != nil {
+			klog.Errorf("ERROR: failed to update status for %s: %v", checkoutRequestID, err)
+		}
 		return
 	}
 
 	if err := utils.SendKSHS(mc.RPCClient, txn.KshsAddress, amountRaw); err != nil {
 		klog.Errorf("SendKSHS to %s failed (check treasury balance): %v", txn.KshsAddress, err)
-		_ = mc.MpesaTxnRepo.UpdateStatus(cb.CheckoutRequestID, "failed", receipt)
+		if err := mc.MpesaTxnRepo.UpdateStatus(cb.CheckoutRequestID, "failed", receipt); err != nil {
+			klog.Errorf("ERROR: failed to update status for %s: %v", cb.CheckoutRequestID, err)
+		}
 		return
 	}
 
-	_ = mc.MpesaTxnRepo.UpdateStatus(checkoutRequestID, "confirmed", receipt)
+	if err := mc.MpesaTxnRepo.UpdateStatus(checkoutRequestID, "confirmed", receipt); err != nil {
+		klog.Errorf("ERROR: failed to update status for %s: %v", checkoutRequestID, err)
+	}
 }
 
 // ── Cash-Out ─────────────────────────────────────────────────────────────────
@@ -276,23 +293,11 @@ func (mc *MpesaController) HandleCashOut(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	token, err := mpesa.GetToken()
-	if err != nil {
-		ErrInternalServerError(w, r, fmt.Sprintf("failed to get M-Pesa token: %s", err))
-		return
-	}
-
-	callbackURL := utils.GetEnv("MPESA_CALLBACK_URL", "")
-	conversationID, err := mpesa.InitiateB2C(token, phone, req.AmountKES, callbackURL)
-	if err != nil {
-		ErrInternalServerError(w, r, fmt.Sprintf("B2C initiation failed: %s", err))
-		return
-	}
-
-	// Atomically guard against double-spend: the INSERT will fail if tx_hash
-	// is already recorded, preventing TOCTOU races between concurrent requests.
+	// FIRST create the pending cash-out record before sending any money.
+	// This way, if the DB insert fails (e.g. duplicate tx_hash), no B2C is sent.
 	amountDec := decimal.NewFromInt(amount)
-	if _, err := mc.MpesaTxnRepo.CreatePendingCashOutAtomic(amountDec, block.BlockAccount, req.TxHash, conversationID); err != nil {
+	txn, err := mc.MpesaTxnRepo.CreatePendingCashOutAtomic(amountDec, block.BlockAccount, req.TxHash, "")
+	if err != nil {
 		klog.Errorf("Saving cash-out txn: %v", err)
 		if strings.Contains(err.Error(), "duplicat") || strings.Contains(err.Error(), "23505") || strings.Contains(err.Error(), "unique") {
 			render.Status(r, http.StatusConflict)
@@ -301,6 +306,30 @@ func (mc *MpesaController) HandleCashOut(w http.ResponseWriter, r *http.Request)
 		}
 		ErrInternalServerError(w, r, "Failed to save transaction")
 		return
+	}
+
+	token, err := mpesa.GetToken()
+	if err != nil {
+		if err := mc.MpesaTxnRepo.UpdateStatus(txn.MerchantReqID, "failed", ""); err != nil {
+			klog.Errorf("ERROR: failed to update status after token error: %v", err)
+		}
+		ErrInternalServerError(w, r, fmt.Sprintf("failed to get M-Pesa token: %s", err))
+		return
+	}
+
+	callbackURL := utils.GetEnv("MPESA_CALLBACK_URL", "")
+	conversationID, err := mpesa.InitiateB2C(token, phone, req.AmountKES, callbackURL)
+	if err != nil {
+		if err := mc.MpesaTxnRepo.UpdateStatus(txn.MerchantReqID, "failed", ""); err != nil {
+			klog.Errorf("ERROR: failed to update status after B2C error: %v", err)
+		}
+		ErrInternalServerError(w, r, fmt.Sprintf("B2C initiation failed: %s", err))
+		return
+	}
+
+	// B2C succeeded — update the record with the ConversationID for callback matching.
+	if err := mc.MpesaTxnRepo.UpdateStatus(txn.MerchantReqID, "pending", conversationID); err != nil {
+		klog.Errorf("ERROR: failed to update conversation ID: %v", err)
 	}
 
 	render.Status(r, http.StatusOK)
@@ -332,5 +361,7 @@ func (mc *MpesaController) HandleCashOutCallback(w http.ResponseWriter, r *http.
 		status = "confirmed"
 	}
 
-	_ = mc.MpesaTxnRepo.UpdateStatus(result.ConversationID, status, result.TransactionID)
+	if err := mc.MpesaTxnRepo.UpdateStatus(result.ConversationID, status, result.TransactionID); err != nil {
+		klog.Errorf("ERROR: failed to update cash-out status for %s: %v", result.ConversationID, err)
+	}
 }
