@@ -1,10 +1,15 @@
 package repository
 
 import (
+	"errors"
+
 	"github.com/kakitucurrency/kakitu-wallet-server/models/dbmodels"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
+
+// ErrDuplicateTxHash is returned when a cash-out tx_hash already exists.
+var ErrDuplicateTxHash = errors.New("duplicate tx_hash: cash-out already exists")
 
 type MpesaTxnRepo struct {
 	DB *gorm.DB
@@ -76,7 +81,7 @@ func (r *MpesaTxnRepo) CreatePendingCashOutAtomic(amountKES decimal.Decimal, ksh
 			return err
 		}
 		if count > 0 {
-			return gorm.ErrDuplicatedKey
+			return ErrDuplicateTxHash
 		}
 
 		txn = &dbmodels.MpesaTransaction{
@@ -94,6 +99,33 @@ func (r *MpesaTxnRepo) CreatePendingCashOutAtomic(amountKES decimal.Decimal, ksh
 		return nil, err
 	}
 	return txn, nil
+}
+
+// ClaimPendingTransaction atomically transitions a transaction from "pending" to
+// "processing". It returns the transaction if a row was updated, or nil if no
+// pending row matched (e.g. already processed or does not exist). This prevents
+// double-mint when Safaricom delivers the callback more than once.
+func (r *MpesaTxnRepo) ClaimPendingTransaction(merchantReqID string) (*dbmodels.MpesaTransaction, error) {
+	var txn dbmodels.MpesaTransaction
+
+	result := r.DB.
+		Model(&dbmodels.MpesaTransaction{}).
+		Where("merchant_req_id = ? AND status = 'pending'", merchantReqID).
+		Update("status", "processing")
+
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		// No pending row found — already processed or does not exist.
+		return nil, nil
+	}
+
+	// Fetch the now-processing row.
+	if err := r.DB.Where("merchant_req_id = ?", merchantReqID).First(&txn).Error; err != nil {
+		return nil, err
+	}
+	return &txn, nil
 }
 
 // UpdateStatus sets the status and optionally mpesa_receipt on a transaction.
