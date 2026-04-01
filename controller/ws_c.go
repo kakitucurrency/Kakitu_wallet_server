@@ -54,13 +54,88 @@ type Client struct {
 	mutex sync.Mutex
 }
 
-var Upgrader = websocket.Upgrader{}
+var Upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		// WebSocket connections are already gated by the connection
+		// tracker. The CORS policy on HTTP routes does not apply to
+		// WS upgrades, so we perform a lightweight origin check here.
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // non-browser clients (mobile wallet)
+		}
+		if utils.GetEnv("ENVIRONMENT", "development") == "development" {
+			return true
+		}
+		for _, suffix := range []string{".kakitu.org", ".kakitu.africa", "://kakitu.org", "://kakitu.africa"} {
+			if strings.HasSuffix(origin, suffix) {
+				return true
+			}
+		}
+		return false
+	},
+}
+
+// allowedWSActions is the set of action types accepted over the WebSocket.
+var allowedWSActions = map[string]bool{
+	"account_subscribe": true,
+	"fcm_update":        true,
+}
+
+// Connection limit constants.
+const (
+	MaxConnectionsPerIP = 5
+	MaxGlobalConnections = 10000
+)
+
+// connTracker tracks WebSocket connections per IP and globally.
+type connTracker struct {
+	mu       sync.Mutex
+	perIP    map[string]int
+	total    int
+}
+
+var tracker = &connTracker{
+	perIP: make(map[string]int),
+}
+
+func (ct *connTracker) tryAdd(ip string) bool {
+	ct.mu.Lock()
+	defer ct.mu.Unlock()
+	if ct.total >= MaxGlobalConnections {
+		return false
+	}
+	if ct.perIP[ip] >= MaxConnectionsPerIP {
+		return false
+	}
+	ct.perIP[ip]++
+	ct.total++
+	return true
+}
+
+func (ct *connTracker) remove(ip string) {
+	ct.mu.Lock()
+	defer ct.mu.Unlock()
+	if ct.perIP[ip] > 0 {
+		ct.perIP[ip]--
+		if ct.perIP[ip] == 0 {
+			delete(ct.perIP, ip)
+		}
+	}
+	if ct.total > 0 {
+		ct.total--
+	}
+}
 
 // Hub maintains the set of active clients and broadcasts messages to the
 // clients.
 type Hub struct {
 	// Registered clients.
 	Clients map[*Client]bool
+
+	// Mutex to protect Clients map from concurrent access.
+	ClientsMu sync.RWMutex
 
 	// Outbound messages to the client
 	Broadcast chan []byte
@@ -101,13 +176,18 @@ func (h *Hub) Run() {
 	for {
 		select {
 		case client := <-h.Register:
+			h.ClientsMu.Lock()
 			h.Clients[client] = true
+			h.ClientsMu.Unlock()
 		case client := <-h.Unregister:
+			h.ClientsMu.Lock()
 			if _, ok := h.Clients[client]; ok {
 				delete(h.Clients, client)
 				close(client.Send)
 			}
+			h.ClientsMu.Unlock()
 		case message := <-h.Broadcast:
+			h.ClientsMu.Lock()
 			for client := range h.Clients {
 				select {
 				case client.Send <- message:
@@ -116,8 +196,21 @@ func (h *Hub) Run() {
 					delete(h.Clients, client)
 				}
 			}
+			h.ClientsMu.Unlock()
 		}
 	}
+}
+
+// GetClients returns a snapshot of the current clients map.
+// Callers outside the Hub.Run goroutine MUST use this instead of accessing Clients directly.
+func (h *Hub) GetClients() []*Client {
+	h.ClientsMu.RLock()
+	defer h.ClientsMu.RUnlock()
+	clients := make([]*Client, 0, len(h.Clients))
+	for c := range h.Clients {
+		clients = append(clients, c)
+	}
+	return clients
 }
 
 func (h *Hub) BroadcastToClient(client *Client, message []byte) {
@@ -142,6 +235,7 @@ var (
 // reads from this goroutine.
 func (c *Client) readPump() {
 	defer func() {
+		tracker.remove(c.IPAddress)
 		c.Hub.Unregister <- c
 		c.Conn.Close()
 	}()
@@ -170,6 +264,14 @@ func (c *Client) readPump() {
 
 		if _, ok := baseRequest["action"]; !ok {
 			errJson, _ := json.Marshal(InvalidRequestError)
+			c.Hub.BroadcastToClient(c, errJson)
+			continue
+		}
+
+		// Validate action against allowed list (Fix 5)
+		actionStr, ok := baseRequest["action"].(string)
+		if !ok || !allowedWSActions[actionStr] {
+			errJson, _ := json.Marshal(ErrorResponse{Error: fmt.Sprintf("Unsupported action: %v", baseRequest["action"])})
 			c.Hub.BroadcastToClient(c, errJson)
 			continue
 		}
@@ -276,7 +378,7 @@ func (c *Client) readPump() {
 			// Or remove the token, if notifications disabled
 			if !subscribeRequest.NotificationEnabled {
 				// Set token in db
-				c.Hub.FcmTokenRepo.DeleteFcmToken(subscribeRequest.FcmToken)
+				c.Hub.FcmTokenRepo.DeleteFcmToken(subscribeRequest.FcmToken, subscribeRequest.Account)
 			} else {
 				// Add/update token if not exists
 				c.Hub.FcmTokenRepo.AddOrUpdateToken(subscribeRequest.FcmToken, subscribeRequest.Account)
@@ -298,16 +400,11 @@ func (c *Client) readPump() {
 			// Do the updoot
 			if !fcmUpdateRequest.Enabled {
 				// Set token in db
-				c.Hub.FcmTokenRepo.DeleteFcmToken(fcmUpdateRequest.FcmToken)
+				c.Hub.FcmTokenRepo.DeleteFcmToken(fcmUpdateRequest.FcmToken, fcmUpdateRequest.Account)
 			} else {
 				// Add token to db if not exists
 				c.Hub.FcmTokenRepo.AddOrUpdateToken(fcmUpdateRequest.FcmToken, fcmUpdateRequest.Account)
 			}
-		} else {
-			klog.Errorf("Unknown websocket request %s", msg)
-			errJson, _ := json.Marshal(InvalidRequestError)
-			c.Hub.BroadcastToClient(c, errJson)
-			continue
 		}
 	}
 }
@@ -354,8 +451,15 @@ func (c *Client) writePump() {
 func WebsocketChl(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	clientIP := utils.IPAddress(r)
 
+	if !tracker.tryAdd(clientIP) {
+		klog.Warningf("Connection limit exceeded for IP %s (per-IP: %d, global: %d)", clientIP, MaxConnectionsPerIP, MaxGlobalConnections)
+		http.Error(w, "Too many connections", http.StatusServiceUnavailable)
+		return
+	}
+
 	conn, err := Upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		tracker.remove(clientIP)
 		klog.Error(err)
 		return
 	}

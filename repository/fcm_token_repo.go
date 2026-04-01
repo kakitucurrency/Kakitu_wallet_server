@@ -58,8 +58,8 @@ func (repo *FcmTokenRepo) GetTokensForAccount(account string) ([]dbmodels.FcmTok
 	return tokens, nil
 }
 
-func (repo *FcmTokenRepo) DeleteFcmToken(token string) error {
-	return repo.DB.Delete(&dbmodels.FcmToken{}, "fcm_token = ?", token).Error
+func (repo *FcmTokenRepo) DeleteFcmToken(token string, account string) error {
+	return repo.DB.Delete(&dbmodels.FcmToken{}, "fcm_token = ? AND account = ?", token, account).Error
 }
 
 func (repo *FcmTokenRepo) AddOrUpdateToken(token string, account string) error {

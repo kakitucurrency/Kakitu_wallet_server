@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/go-chi/render"
-	"regexp"
 	"github.com/kakitucurrency/kakitu-wallet-server/mpesa"
 	"github.com/kakitucurrency/kakitu-wallet-server/net"
 	"github.com/kakitucurrency/kakitu-wallet-server/repository"
@@ -21,6 +21,27 @@ import (
 type MpesaController struct {
 	RPCClient    *net.RPCClient
 	MpesaTxnRepo *repository.MpesaTxnRepo
+}
+
+// validateCallbackAuth checks that the M-Pesa callback request carries a valid
+// secret token. When the CALLBACK_SECRET env var is set, the request must include
+// either a matching "Authorization" header or a "secret" query parameter.
+// Returns true if the request is authorized.
+func validateCallbackAuth(r *http.Request) bool {
+	secret := utils.GetEnv("CALLBACK_SECRET", "")
+	if secret == "" {
+		// No secret configured; allow all callbacks (but log a warning once via caller).
+		return true
+	}
+	// Check Authorization header first.
+	if r.Header.Get("Authorization") == secret {
+		return true
+	}
+	// Fall back to query parameter (useful for Safaricom callback URLs: ?secret=xyz).
+	if r.URL.Query().Get("secret") == secret {
+		return true
+	}
+	return false
 }
 
 // ── Cash-In ──────────────────────────────────────────────────────────────────
@@ -118,6 +139,12 @@ func (mc *MpesaController) HandleCashIn(w http.ResponseWriter, r *http.Request) 
 // HandleCashInCallback processes the STK Push result posted by Safaricom.
 // POST /mpesa/cashin/callback
 func (mc *MpesaController) HandleCashInCallback(w http.ResponseWriter, r *http.Request) {
+	if !validateCallbackAuth(r) {
+		klog.Warning("Rejected cash-in callback: invalid or missing callback secret")
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
 	// Safaricom requires a 200 response immediately.
 	w.WriteHeader(http.StatusOK)
 
@@ -216,18 +243,6 @@ func (mc *MpesaController) HandleCashOut(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Guard against double-spend.
-	exists, err := mc.MpesaTxnRepo.TxHashExists(req.TxHash)
-	if err != nil {
-		ErrInternalServerError(w, r, fmt.Sprintf("db error: %s", err))
-		return
-	}
-	if exists {
-		render.Status(r, http.StatusConflict)
-		render.JSON(w, r, &ErrorResponse{Error: "tx_hash already used"})
-		return
-	}
-
 	// Verify the on-chain block.
 	block, err := mc.RPCClient.MakeBlockRequest(req.TxHash)
 	if err != nil {
@@ -274,10 +289,12 @@ func (mc *MpesaController) HandleCashOut(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Atomically guard against double-spend: the INSERT will fail if tx_hash
+	// is already recorded, preventing TOCTOU races between concurrent requests.
 	amountDec := decimal.NewFromInt(amount)
-	if _, err := mc.MpesaTxnRepo.CreatePendingCashOut(amountDec, block.BlockAccount, req.TxHash, conversationID); err != nil {
+	if _, err := mc.MpesaTxnRepo.CreatePendingCashOutAtomic(amountDec, block.BlockAccount, req.TxHash, conversationID); err != nil {
 		klog.Errorf("Saving cash-out txn: %v", err)
-		if strings.Contains(err.Error(), "23505") || strings.Contains(err.Error(), "unique") {
+		if strings.Contains(err.Error(), "duplicat") || strings.Contains(err.Error(), "23505") || strings.Contains(err.Error(), "unique") {
 			render.Status(r, http.StatusConflict)
 			render.JSON(w, r, map[string]string{"error": "tx_hash already used"})
 			return
@@ -295,6 +312,12 @@ func (mc *MpesaController) HandleCashOut(w http.ResponseWriter, r *http.Request)
 // HandleCashOutCallback processes the B2C result posted by Safaricom.
 // POST /mpesa/cashout/callback
 func (mc *MpesaController) HandleCashOutCallback(w http.ResponseWriter, r *http.Request) {
+	if !validateCallbackAuth(r) {
+		klog.Warning("Rejected cash-out callback: invalid or missing callback secret")
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
 	// Safaricom requires a 200 response immediately.
 	w.WriteHeader(http.StatusOK)
 

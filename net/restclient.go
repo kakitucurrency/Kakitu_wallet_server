@@ -1,6 +1,9 @@
 package net
 
-import "net/http"
+import (
+	"net/http"
+	"time"
+)
 
 // A separate interface for HTTPClient allows us to create a mock implementation
 
@@ -13,5 +16,7 @@ var (
 )
 
 func init() {
-	Client = &http.Client{}
+	Client = &http.Client{
+		Timeout: 30 * time.Second,
+	}
 }

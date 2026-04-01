@@ -11,12 +11,68 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/kakitucurrency/kakitu-wallet-server/config"
 	"github.com/kakitucurrency/kakitu-wallet-server/database"
 	"github.com/kakitucurrency/kakitu-wallet-server/models"
 	"k8s.io/klog/v2"
 )
+
+const (
+	// PriceStalenessThreshold is the maximum age of price data before it is
+	// considered stale and a warning is emitted.
+	PriceStalenessThreshold = 30 * time.Minute
+
+	// PriceMaxReasonable is a sanity-check upper bound for any single currency
+	// price of 1 KSHS. Since 1 KSHS is pegged to 1 KES (roughly 0.007 USD),
+	// no legitimate price should exceed 1,000,000 in any currency.
+	PriceMaxReasonable = 1_000_000.0
+)
+
+// priceState tracks when prices were last successfully updated.
+var priceState = struct {
+	mu          sync.RWMutex
+	lastUpdated time.Time
+}{
+	lastUpdated: time.Time{}, // zero value = never updated
+}
+
+// SetPriceLastUpdated records the time of the most recent successful price update.
+func SetPriceLastUpdated(t time.Time) {
+	priceState.mu.Lock()
+	defer priceState.mu.Unlock()
+	priceState.lastUpdated = t
+}
+
+// GetPriceLastUpdated returns the time of the last successful price update.
+func GetPriceLastUpdated() time.Time {
+	priceState.mu.RLock()
+	defer priceState.mu.RUnlock()
+	return priceState.lastUpdated
+}
+
+// IsPriceStale returns true if price data is older than PriceStalenessThreshold
+// or has never been updated.
+func IsPriceStale() bool {
+	last := GetPriceLastUpdated()
+	if last.IsZero() {
+		return true
+	}
+	return time.Since(last) > PriceStalenessThreshold
+}
+
+// validatePrice checks that a price value is positive and within a reasonable range.
+func validatePrice(value float64, label string) error {
+	if value <= 0 {
+		return fmt.Errorf("price %s is non-positive: %f", label, value)
+	}
+	if value > PriceMaxReasonable {
+		return fmt.Errorf("price %s exceeds reasonable maximum (%f > %f)", label, value, PriceMaxReasonable)
+	}
+	return nil
+}
 
 // KES is included alongside the standard currency list
 var CurrencyList = []string{
@@ -141,6 +197,10 @@ func UpdateNanoCoingeckoPrices() error {
 	for _, currency := range CurrencyList {
 		data_name := strings.ToLower(currency)
 		if val, ok := cgResp.MarketData.CurrentPrice[data_name]; ok {
+			if err := validatePrice(val, fmt.Sprintf("KSHS-%s", currency)); err != nil {
+				klog.Warningf("Skipping invalid CoinGecko price: %v", err)
+				continue
+			}
 			fmt.Printf("Coingecko KSHS-%s: %f\n", currency, val)
 			database.GetRedisDB().Hset("prices", "coingecko:kshs-"+data_name, val)
 		}
@@ -175,6 +235,12 @@ func UpdateNanoCoingeckoPrices() error {
 		}
 	}
 
+	// Mark prices as freshly updated.
+	SetPriceLastUpdated(time.Now())
+	if IsPriceStale() {
+		klog.Warning("Price data is stale after CoinGecko update — check clock or update logic")
+	}
+
 	return nil
 }
 
@@ -207,6 +273,10 @@ func seedKshsPricesFromKes() error {
 		if rate, ok := rateResp.Rates[ccy]; ok && rate != 0 {
 			// price of 1 KSHS in `currency` = (1 KSHS in USD) * (currency per USD)
 			price := kshsUsd * rate
+			if err := validatePrice(price, fmt.Sprintf("KSHS-%s", ccy)); err != nil {
+				klog.Warningf("Skipping invalid seeded price: %v", err)
+				continue
+			}
 			data_name := strings.ToLower(currency)
 			database.GetRedisDB().Hset("prices", "coingecko:kshs-"+data_name, price)
 			fmt.Printf("KSHS-%s (KES-pegged): %f\n", ccy, price)
@@ -215,6 +285,9 @@ func seedKshsPricesFromKes() error {
 	// KES itself is always 1
 	database.GetRedisDB().Hset("prices", "coingecko:kshs-kes", 1.0)
 	fmt.Printf("KSHS-KES: 1.000000 (pegged)\n")
+
+	// Mark prices as freshly updated.
+	SetPriceLastUpdated(time.Now())
 	return nil
 }
 

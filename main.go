@@ -2,13 +2,16 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/kakitucurrency/kakitu-wallet-server/controller"
@@ -30,6 +33,7 @@ import (
 	"github.com/googollee/go-socket.io/engineio/transport/polling"
 	"github.com/googollee/go-socket.io/engineio/transport/websocket"
 	"golang.org/x/exp/slices"
+	"gorm.io/gorm"
 	"k8s.io/klog/v2"
 )
 
@@ -193,16 +197,39 @@ func main() {
 	// Get ADMIN_API_KEY from env
 	adminAPIKey := utils.GetEnv("ADMIN_API_KEY", "")
 
-	// Cors middleware
+	// CORS middleware — restrict to known Kakitu domains.
+	// In development (ENVIRONMENT=development), all origins are allowed.
+	allowedOrigins := []string{
+		"https://kakitu.org",
+		"https://*.kakitu.org",
+		"https://kakitu.africa",
+		"https://*.kakitu.africa",
+	}
+	corsAllowOriginFunc := func(r *http.Request, origin string) bool {
+		if utils.GetEnv("ENVIRONMENT", "development") == "development" {
+			return true
+		}
+		for _, allowed := range allowedOrigins {
+			if allowed == origin {
+				return true
+			}
+			// Simple wildcard prefix match: "https://*.kakitu.org"
+			if strings.HasPrefix(allowed, "https://*.") {
+				suffix := allowed[len("https://*"):]
+				if strings.HasSuffix(origin, suffix) && strings.HasPrefix(origin, "https://") {
+					return true
+				}
+			}
+		}
+		return false
+	}
 	app.Use(cors.Handler(cors.Options{
-		// AllowedOrigins:   []string{"https://foo.com"}, // Use this to allow specific origin hosts
-		//AllowedOrigins:   []string{"*"},
-		AllowOriginFunc:  func(r *http.Request, origin string) bool { return true },
+		AllowOriginFunc:  corsAllowOriginFunc,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link"},
 		AllowCredentials: false,
-		MaxAge:           300, // Maximum value not ignored by any of major browsers
+		MaxAge:           300,
 	}))
 	// Rate limiting middleware
 	app.Use(httprate.Limit(
@@ -262,6 +289,10 @@ func main() {
 	// Setup WS endpoint
 	wsHub := controller.NewHub(false, &rpcClient, fcmRepo)
 	go wsHub.Run()
+
+	// Health check endpoint (Fix 2) — registered after hub creation
+	app.Get("/health", healthCheckHandler(db, wsHub))
+
 	app.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		controller.WebsocketChl(wsHub, w, r)
 	})
@@ -293,7 +324,6 @@ func main() {
 				klog.Errorf("socketio listen error: %s\n", err)
 			}
 		}()
-		defer sio.Close()
 
 		app.Handle("/socket.io/", sio)
 	}
@@ -324,7 +354,7 @@ func main() {
 			}
 
 			// See if they are subscribed
-			for client, _ := range wsHub.Clients {
+			for _, client := range wsHub.GetClients() {
 				for _, account := range client.Accounts {
 					if account == msg.Block.LinkAsAccount {
 						client.Hub.BroadcastToClient(client, serialized)
@@ -348,6 +378,10 @@ func main() {
 	s := gocron.NewScheduler(time.UTC)
 
 	s.Every(60).Seconds().Do(func() {
+		// Warn if price data is stale.
+		if net.IsPriceStale() {
+			klog.Warning("Price data is stale (last updated >30m ago or never) — clients may receive outdated prices")
+		}
 		// BTC and KSHS price
 		btcPrice, err := database.GetRedisDB().Hget("prices", fmt.Sprintf("coingecko:%s-btc", pricePrefix))
 		if err != nil {
@@ -359,7 +393,7 @@ func main() {
 			klog.Errorf("Error parsing btc price in cron: %v", err)
 			return
 		}
-		for client := range wsHub.Clients {
+		for _, client := range wsHub.GetClients() {
 			currency := client.Currency
 			curStr, err := database.GetRedisDB().Hget("prices", fmt.Sprintf("coingecko:%s-%s", pricePrefix, strings.ToLower(currency)))
 			if err != nil {
@@ -386,5 +420,92 @@ func main() {
 	})
 	s.StartAsync()
 
-	http.ListenAndServe(":3000", app)
+	// Fix 3: Server-level timeouts
+	server := &http.Server{
+		Addr:         ":3000",
+		Handler:      app,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	// Fix 1: Graceful shutdown — listen for SIGTERM/SIGINT
+	shutdownCh := make(chan os.Signal, 1)
+	signal.Notify(shutdownCh, syscall.SIGTERM, syscall.SIGINT)
+
+	go func() {
+		klog.Infof("Starting server on %s", server.Addr)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			klog.Fatalf("Server error: %v", err)
+		}
+	}()
+
+	// Block until we receive a shutdown signal
+	sig := <-shutdownCh
+	klog.Infof("Received signal %v, starting graceful shutdown...", sig)
+
+	// Give outstanding requests up to 30 seconds to complete
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	// Stop the price-update scheduler
+	s.Stop()
+
+	// Shut down the HTTP server (stops accepting new connections, waits for in-flight)
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		klog.Errorf("HTTP server shutdown error: %v", err)
+	}
+
+	// Close database connection pool
+	sqlDB, err := db.DB()
+	if err == nil {
+		if err := sqlDB.Close(); err != nil {
+			klog.Errorf("Database close error: %v", err)
+		} else {
+			klog.Info("Database connection closed")
+		}
+	}
+
+	// Close Redis connection
+	if err := database.GetRedisDB().Client.Close(); err != nil {
+		klog.Errorf("Redis close error: %v", err)
+	} else {
+		klog.Info("Redis connection closed")
+	}
+
+	// Close socket.io server if running
+	if sio != nil {
+		sio.Close()
+	}
+
+	klog.Info("Graceful shutdown complete")
+}
+
+// healthCheckHandler returns an http.HandlerFunc that reports server health.
+func healthCheckHandler(db *gorm.DB, hub *controller.Hub) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		dbStatus := "connected"
+		sqlDB, err := db.DB()
+		if err != nil {
+			dbStatus = "error"
+		} else if err := sqlDB.Ping(); err != nil {
+			dbStatus = "disconnected"
+		}
+
+		clients := hub.GetClients()
+
+		status := "ok"
+		httpStatus := http.StatusOK
+		if dbStatus != "connected" {
+			status = "degraded"
+			httpStatus = http.StatusServiceUnavailable
+		}
+
+		render.Status(r, httpStatus)
+		render.JSON(w, r, map[string]interface{}{
+			"status":     status,
+			"db":         dbStatus,
+			"ws_clients": len(clients),
+		})
+	}
 }

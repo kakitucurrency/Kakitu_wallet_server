@@ -63,7 +63,7 @@ func TestDeleteToken(t *testing.T) {
 	err = fcmRepo.CreateMockTokens()
 
 	// Delete tokens for account
-	err = fcmRepo.DeleteFcmToken("token1")
+	err = fcmRepo.DeleteFcmToken("token1", "account1")
 	assert.Equal(t, nil, err)
 	tokens, err := fcmRepo.GetTokensForAccount("account1")
 	assert.Equal(t, nil, err)

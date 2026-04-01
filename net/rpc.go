@@ -20,11 +20,16 @@ type RPCClient struct {
 	BpowClient *gql.BpowClient
 }
 
+// RPCTimeout is the per-call timeout for RPC requests to the Kakitu node.
+const RPCTimeout = 15 * time.Second
+
 // Base request
 func (client *RPCClient) MakeRequest(request interface{}) ([]byte, error) {
 	requestBody, _ := json.Marshal(request)
-	// HTTP post
-	httpRequest, err := http.NewRequest(http.MethodPost, client.Url, bytes.NewBuffer(requestBody))
+	// HTTP post with timeout context
+	ctx, cancel := context.WithTimeout(context.Background(), RPCTimeout)
+	defer cancel()
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, client.Url, bytes.NewBuffer(requestBody))
 	if err != nil {
 		klog.Errorf("Error building request %s", err)
 		return nil, err
