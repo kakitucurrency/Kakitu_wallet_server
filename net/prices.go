@@ -235,6 +235,9 @@ func UpdateKshsCoingeckoPrices() error {
 		}
 	}
 
+	// KES is always 1:1 with KSHS regardless of CoinGecko data
+	database.GetRedisDB().Hset("prices", "coingecko:kshs-kes", 1.0)
+
 	// Mark prices as freshly updated.
 	SetPriceLastUpdated(time.Now())
 	if IsPriceStale() {

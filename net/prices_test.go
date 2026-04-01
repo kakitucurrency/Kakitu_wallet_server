@@ -142,6 +142,8 @@ func TestUpdateKshsPrice(t *testing.T) {
 			assert.Equal(t, "33.17", price)
 		case "VES":
 			assert.Equal(t, "7.330566", price)
+		case "KES":
+			assert.Equal(t, "1", price)
 		}
 	}
 }
