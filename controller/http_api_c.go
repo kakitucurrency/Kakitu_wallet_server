@@ -25,7 +25,6 @@ import (
 
 type HttpController struct {
 	RPCClient    *net.RPCClient
-	BananoMode   bool
 	FcmTokenRepo *repository.FcmTokenRepo
 	FcmClient    *fcm.Client
 }
@@ -122,7 +121,7 @@ func (hc *HttpController) HandleAction(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Check if account is valid
-		if !utils.ValidateAddress(accountHistory.Account, hc.BananoMode) {
+		if !utils.ValidateAddress(accountHistory.Account) {
 			ErrInvalidRequest(w, r)
 			return
 		}
@@ -242,18 +241,16 @@ func (hc *HttpController) HandleAction(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			// We're g2g
+			// Determine work difficulty multiplier for KSHS
 			var difficultyMultiplier int
-			if hc.BananoMode {
-				difficultyMultiplier = 1
-			} else if processRequestJsonBlock.SubType == nil {
+			if processRequestJsonBlock.SubType == nil {
 				// Default to receive difficulty when subtype is not provided
-				// Kakitu requires 8x Nano base difficulty (ffffffc000000000)
+				// KSHS requires 8x base difficulty (ffffffc000000000)
 				difficultyMultiplier = 8
 			} else if slices.Contains([]string{"change", "send"}, *processRequestJsonBlock.SubType) {
 				difficultyMultiplier = 64
 			} else {
-				// receive/open: Kakitu requires 8x Nano base difficulty (ffffffc000000000)
+				// receive/open: KSHS requires 8x base difficulty (ffffffc000000000)
 				difficultyMultiplier = 8
 			}
 			if doWork {
@@ -303,7 +300,7 @@ func (hc *HttpController) HandleAction(w http.ResponseWriter, r *http.Request) {
 			ErrInvalidRequest(w, r)
 			return
 		}
-		// We force include_only_confirmed since natrium/kalium don't include it
+		// We force include_only_confirmed since the upstream server didn't include it
 		// "receivable" can be used to bypass this behavior
 		ioc := true
 		pendingRequest.IncludeOnlyConfirmed = &ioc
@@ -423,7 +420,7 @@ func (hc *HttpController) HandleHTTPCallback(w http.ResponseWriter, r *http.Requ
 
 		// We have tokens, make it happen
 		appName := "Kakitu"
-		asKshs, err := utils.RawToNano(sendAmount.String(), true)
+		asKshs, err := utils.RawToKshs(sendAmount.String(), true)
 		if err != nil {
 			klog.Errorf("Error converting raw to KSHS %s", err)
 			render.Status(r, http.StatusOK)

@@ -19,8 +19,8 @@ const kshs_RegexStr = "(?:kshs)(?:_)(?:1|3)(?:[13456789abcdefghijkmnopqrstuwxyz]
 
 var kshsRegex = regexp.MustCompile(kshs_RegexStr)
 
-// ValidateAddress - Returns true if a kshs_ address is valid
-func ValidateAddress(account string, bananoMode bool) bool {
+// ValidateAddress returns true if a kshs_ address is valid.
+func ValidateAddress(account string) bool {
 	if !kshsRegex.MatchString(account) {
 		return false
 	}

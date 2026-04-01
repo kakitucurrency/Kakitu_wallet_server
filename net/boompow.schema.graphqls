@@ -9,12 +9,12 @@ type User {
   createdAt: String!
   updatedAt: String!
   type: UserType!
-  banAddress: String
+  kshsAddress: String
 }
 
 type StatsUserType {
-  banAddress: String!
-  totalPaidBanano: String!
+  kshsAddress: String!
+  totalPaidKshs: String!
 }
 
 type StatsServiceType {
@@ -25,7 +25,7 @@ type StatsServiceType {
 
 type Stats {
   connectedWorkers: Int!
-  totalPaidBanano: String!
+  totalPaidKshs: String!
   registeredServiceCount: Int!
   top10: [StatsUserType]!
   services: [StatsServiceType]!
@@ -49,7 +49,7 @@ input UserInput {
   email: String!
   password: String!
   type: UserType!
-  banAddress: String
+  kshsAddress: String
   serviceName: String
   serviceWebsite: String
 }
@@ -77,7 +77,7 @@ type LoginResponse {
   token: String!
   email: String!
   type: UserType!
-  banAddress: String
+  kshsAddress: String
   serviceName: String
   serviceWebsite: String
   emailVerified: Boolean!
@@ -86,7 +86,7 @@ type LoginResponse {
 type GetUserResponse {
   email: String!
   type: UserType!
-  banAddress: String
+  kshsAddress: String
   serviceName: String
   serviceWebsite: String
   emailVerified: Boolean!

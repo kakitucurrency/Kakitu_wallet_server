@@ -6,9 +6,9 @@ on:
 
 jobs:
   test:
-    name: ☔️ Tests
+    name: Tests
     runs-on: ubuntu-latest
-    container: golang:1.19
+    container: golang:1.21
 
     # Setup postgres service for tests
     services:
@@ -41,13 +41,13 @@ jobs:
           go test -v -parallel 1 $(go list -f '{{.Dir}}/...' -m | xargs)
 
   build_and_publish:
-    name: ⚒️ Build and Publish Server Image
+    name: Build and Publish Server Image
     needs: test
     runs-on: ubuntu-latest
     env:
-      GITHUB_RUN_ID: ${{ github.run_id }}    
+      GITHUB_RUN_ID: ${{ github.run_id }}
     steps:
-      - uses: actions/checkout@master   
+      - uses: actions/checkout@master
 
       - name: Get branch name (merge)
         if: github.event_name != 'pull_request'
@@ -74,16 +74,16 @@ jobs:
           platforms: linux/amd64
           push: true
           file: ./Dockerfile
-          tags: appditto/natrium-server-rewrite:${{ env.BRANCH_NAME }}-${{ env.GITHUB_RUN_ID }}
+          tags: kakitucurrency/kakitu-wallet-server:${{ env.BRANCH_NAME }}-${{ env.GITHUB_RUN_ID }}
 
   deploy:
-    name: 🥳 Deploy natrium server
+    name: Deploy Kakitu wallet server
     needs: build_and_publish
     runs-on: ubuntu-latest
     env:
       GITHUB_RUN_ID: ${{ github.run_id }}
     steps:
-      - uses: actions/checkout@master   
+      - uses: actions/checkout@master
       - uses: imranismail/setup-kustomize@v1
         with:
           kustomize-version: "3.5.4"
@@ -101,7 +101,7 @@ jobs:
       - name: Set image
         working-directory: ./kubernetes/natrium
         run: |
-          kustomize edit set image replaceme=appditto/natrium-server-rewrite:${{ env.BRANCH_NAME }}-${{ env.GITHUB_RUN_ID }}
+          kustomize edit set image replaceme=kakitucurrency/kakitu-wallet-server:${{ env.BRANCH_NAME }}-${{ env.GITHUB_RUN_ID }}
           kustomize build . > deployment-k.yaml
 
       - name: Deploy image to k8s cluster
@@ -110,38 +110,3 @@ jobs:
           KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
         with:
           args: apply -f ./kubernetes/natrium/deployment-k.yaml
-
-  deploy_kal:
-    name: 🙉 Deploy kalium server
-    needs: build_and_publish
-    runs-on: ubuntu-latest
-    env:
-      GITHUB_RUN_ID: ${{ github.run_id }}
-    steps:
-      - uses: actions/checkout@master   
-      - uses: imranismail/setup-kustomize@v1
-        with:
-          kustomize-version: "3.5.4"
-
-      - name: Get branch name (merge)
-        if: github.event_name != 'pull_request'
-        shell: bash
-        run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
-
-      - name: Get branch name (pull request)
-        if: github.event_name == 'pull_request'
-        shell: bash
-        run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
-
-      - name: Set image
-        working-directory: ./kubernetes/kalium
-        run: |
-          kustomize edit set image replaceme=appditto/natrium-server-rewrite:${{ env.BRANCH_NAME }}-${{ env.GITHUB_RUN_ID }}
-          kustomize build . > deployment-k.yaml
-
-      - name: Deploy image to k8s cluster
-        uses: bbedward/kubectl@master
-        env:
-          KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
-        with:
-          args: apply -f ./kubernetes/kalium/deployment-k.yaml

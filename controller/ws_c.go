@@ -146,27 +146,19 @@ type Hub struct {
 	// Unregister requests from clients.
 	Unregister chan *Client
 
-	BananoMode  bool
 	PricePrefix string
 
 	RPCClient    *net.RPCClient
 	FcmTokenRepo *repository.FcmTokenRepo
 }
 
-func NewHub(bananomode bool, rpcClient *net.RPCClient, fcmTokenRepo *repository.FcmTokenRepo) *Hub {
-	var pricePrefix string
-	if bananomode {
-		pricePrefix = "banano"
-	} else {
-		pricePrefix = "kshs"
-	}
+func NewHub(rpcClient *net.RPCClient, fcmTokenRepo *repository.FcmTokenRepo) *Hub {
 	return &Hub{
 		Broadcast:    make(chan []byte),
 		Register:     make(chan *Client),
 		Unregister:   make(chan *Client),
 		Clients:      make(map[*Client]bool),
-		BananoMode:   bananomode,
-		PricePrefix:  pricePrefix,
+		PricePrefix:  "kshs",
 		RPCClient:    rpcClient,
 		FcmTokenRepo: fcmTokenRepo,
 	}
@@ -302,8 +294,8 @@ func (c *Client) readPump() {
 				continue
 			}
 			// Check if account is valid
-			if !utils.ValidateAddress(subscribeRequest.Account, c.Hub.BananoMode) {
-				klog.Errorf("Invalid account %s , %v", subscribeRequest.Account, c.Hub.BananoMode)
+			if !utils.ValidateAddress(subscribeRequest.Account) {
+				klog.Errorf("Invalid account %s", subscribeRequest.Account)
 				c.Hub.BroadcastToClient(c, []byte("{\"error\":\"Invalid account\"}"))
 				continue
 			}
@@ -329,13 +321,11 @@ func (c *Client) readPump() {
 				c.Currency = "USD"
 			}
 			c.Mutex.Unlock()
-			// Normalize address prefix
-			if !c.Hub.BananoMode {
-				if strings.HasPrefix(subscribeRequest.Account, "xrb_") {
-					subscribeRequest.Account = fmt.Sprintf("kshs_%s", strings.TrimPrefix(subscribeRequest.Account, "xrb_"))
-				} else if strings.HasPrefix(subscribeRequest.Account, "nano_") {
-					subscribeRequest.Account = fmt.Sprintf("kshs_%s", strings.TrimPrefix(subscribeRequest.Account, "nano_"))
-				}
+			// Normalize address prefix to kshs_
+			if strings.HasPrefix(subscribeRequest.Account, "xrb_") {
+				subscribeRequest.Account = fmt.Sprintf("kshs_%s", strings.TrimPrefix(subscribeRequest.Account, "xrb_"))
+			} else if strings.HasPrefix(subscribeRequest.Account, "nano_") {
+				subscribeRequest.Account = fmt.Sprintf("kshs_%s", strings.TrimPrefix(subscribeRequest.Account, "nano_"))
 			}
 
 			klog.Infof("Received account_subscribe: %s, %s", subscribeRequest.Account, c.IPAddress)
@@ -369,18 +359,9 @@ func (c *Client) readPump() {
 			accountInfo["currency"] = c.Currency
 			accountInfo["price"] = priceCur
 			accountInfo["btc"] = priceBtc
-			if c.Hub.BananoMode {
-				// Also tag nano price
-				// response['nano'] = float(await r.app['rdata'].hget("prices", f"{self.price_prefix}-nano"))
-				priceNano, err := database.GetRedisDB().Hget("prices", fmt.Sprintf("coingecko:%s-nano", c.Hub.PricePrefix))
-				if err != nil {
-					klog.Errorf("Error getting nano price %v", err)
-				}
-				accountInfo["nano"] = priceNano
-			}
 
 			// Tag pending count
-			pendingCount, err := c.Hub.RPCClient.GetReceivableCount(subscribeRequest.Account, c.Hub.BananoMode)
+			pendingCount, err := c.Hub.RPCClient.GetReceivableCount(subscribeRequest.Account)
 			if err != nil {
 				klog.Errorf("Error getting pending count %v", err)
 			}
@@ -415,7 +396,7 @@ func (c *Client) readPump() {
 				continue
 			}
 			// Check if account is valid
-			if !utils.ValidateAddress(fcmUpdateRequest.Account, c.Hub.BananoMode) {
+			if !utils.ValidateAddress(fcmUpdateRequest.Account) {
 				c.Hub.BroadcastToClient(c, []byte("{\"error\":\"Invalid account\"}"))
 				continue
 			}

@@ -1,22 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: natrium-server
+  name: kakitu-wallet-server
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: natrium-server
+      app: kakitu-wallet-server
   template:
     metadata:
       labels:
-        app: natrium-server
+        app: kakitu-wallet-server
     spec:
       containers:
-      - name: natrium-server
+      - name: kakitu-wallet-server
         image: replaceme
         command: ["/bin/sh", "-c"]
-        args: ["natrium-server -socket-io"]
+        args: ["kakitu-server -socket-io"]
         resources:
           requests:
             cpu: 100m
@@ -32,36 +32,34 @@ spec:
           - name: RPC_URL
             value: http://10.7.0.1:7076
           - name: DB_HOST
-            value: pg-natrium.natrium          
+            value: pg-kakitu.kakitu
           - name: DB_PORT
             value: "5432"
           - name: DB_SSLMODE
             value: disable
           - name: DB_NAME
-            value: postgres  
+            value: postgres
           - name: DB_USER
             value: postgres
           - name: DB_PASS
             valueFrom:
               secretKeyRef:
-                name: natrium
-                key: db_password 
+                name: kakitu
+                key: db_password
           - name: FCM_API_KEY
             valueFrom:
               secretKeyRef:
-                name: natrium
+                name: kakitu
                 key: fcm_api_key
           - name: BPOW_KEY
             valueFrom:
               secretKeyRef:
-                name: natrium
+                name: kakitu
                 key: bpow_key
           - name: WORK_URL
-            valueFrom: 
+            valueFrom:
               secretKeyRef:
-                name: natrium
+                name: kakitu
                 key: work_url
-          # - name: BPOW_URL
-          #   value: http://boompow-service.boompow-next:8080/graphql 
           - name: NODE_WS_URL
             value: ws://10.7.0.1:7078

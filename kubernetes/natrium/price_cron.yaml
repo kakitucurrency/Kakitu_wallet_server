@@ -2,7 +2,7 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: natrium-prices
+  name: kakitu-prices
 spec:
   schedule: "*/5 * * * *"
   concurrencyPolicy: Forbid   # Ensures no concurrent job runs
@@ -11,10 +11,10 @@ spec:
       template:
         spec:
           containers:
-          - name: natrium-prices
+          - name: kakitu-prices
             image: replaceme
             command: ["/bin/sh", "-c"]
-            args: ["natrium-server -nano-price-update"]
+            args: ["kakitu-server -kshs-price-update"]
             env:
               - name: REDIS_HOST
                 value: redis.redis

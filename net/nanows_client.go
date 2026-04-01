@@ -50,11 +50,11 @@ type WSCallbackMsg struct {
 	Amount  string          `json:"amount"`
 }
 
-func StartNanoWSClient(wsUrl string, callbackChan *chan *WSCallbackMsg) {
+func StartKshsWSClient(wsUrl string, callbackChan *chan *WSCallbackMsg) {
 	ctx, cancel := context.WithCancel(context.Background())
 	sentSubscribe := false
 	ws := recws.RecConn{}
-	// Nano subscription request
+	// KSHS node subscription request
 	subRequest := wsSubscribe{
 		Action: "subscribe",
 		Topic:  "confirmation",

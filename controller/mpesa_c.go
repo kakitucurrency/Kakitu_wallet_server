@@ -93,7 +93,7 @@ func (mc *MpesaController) HandleCashIn(w http.ResponseWriter, r *http.Request) 
 		ErrBadrequest(w, r, "amount_kes is required")
 		return
 	}
-	if !utils.ValidateAddress(req.KshsAddress, false) {
+	if !utils.ValidateAddress(req.KshsAddress) {
 		ErrBadrequest(w, r, "invalid kshs_address")
 		return
 	}

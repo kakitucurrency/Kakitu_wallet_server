@@ -35,7 +35,7 @@ func TestAccountInfoRequest(t *testing.T) {
 		}, nil
 	}
 
-	resp, err := RpcClient.MakeAccountInfoRequest("nano_3t6k35gi95xu6tergt6p69ck76ogmitsa8mnijtpxm9fkcm736xtoncuohr3")
+	resp, err := RpcClient.MakeAccountInfoRequest("kshs_3t6k35gi95xu6tergt6p69ck76ogmitsa8mnijtpxm9fkcm736xtoncuohr3")
 	assert.Equal(t, nil, err)
 	assert.Equal(t, resp["frontier"], "80A6745762493FA21A22718ABFA4F635656A707B48B3324198AC7F3938DE6D4F")
 	assert.Equal(t, resp["open_block"], "0E3F07F7F2B8AEDEA4A984E29BFE1E3933BA473DD3E27C662EC041F6EA3917A0")
@@ -55,7 +55,7 @@ func TestGetReceivableCount(t *testing.T) {
 		}, nil
 	}
 
-	resp, err := RpcClient.GetReceivableCount("nano_3t6k35gi95xu6tergt6p69ck76ogmitsa8mnijtpxm9fkcm736xtoncuohr3", false)
+	resp, err := RpcClient.GetReceivableCount("kshs_3t6k35gi95xu6tergt6p69ck76ogmitsa8mnijtpxm9fkcm736xtoncuohr3")
 	assert.Equal(t, nil, err)
 	assert.Equal(t, 1, resp)
 }

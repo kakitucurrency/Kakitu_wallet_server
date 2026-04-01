@@ -56,9 +56,7 @@ func main() {
 	// 	flag.Set("v", "3")
 	// }
 	bolivarPriceUpdate := flag.Bool("bolivar-price-update", false, "Update bolivar price")
-	nanoPriceUpdate := flag.Bool("kshs-price-update", false, "Update KSHS prices from CoinGecko")
-	bananoPriceUpdate := flag.Bool("banano-price-update", false, "Update banano prices (unused, kept for compat)")
-	bananoMode := flag.Bool("banano", false, "Run in BANANO mode (unused)")
+	kshsPriceUpdate := flag.Bool("kshs-price-update", false, "Update KSHS prices from CoinGecko")
 	socketIoServer := flag.Bool("socket-io", false, "Run socket.io server for donation endpoint")
 	version := flag.Bool("version", false, "Display the version")
 	flag.Parse()
@@ -81,8 +79,8 @@ func main() {
 			os.Exit(1)
 		}
 		os.Exit(0)
-	} else if *nanoPriceUpdate {
-		// Alse VES and ARS first
+	} else if *kshsPriceUpdate {
+		// Also VES and ARS first
 		err := net.UpdateDolarTodayPrice()
 		if err != nil {
 			klog.Errorf("Error updating dolar today price: %v", err)
@@ -93,31 +91,9 @@ func main() {
 			klog.Errorf("Error updating dolar today price: %v", err)
 			// Not worth breaking the whole flow for VES
 		}
-		err = net.UpdateNanoCoingeckoPrices()
+		err = net.UpdateKshsCoingeckoPrices()
 		if err != nil {
-			klog.Errorf("Error updating nano prices: %v", err)
-			os.Exit(1)
-		}
-		os.Exit(0)
-	} else if *bananoPriceUpdate {
-		err := net.UpdateDolarTodayPrice()
-		if err != nil {
-			klog.Errorf("Error updating dolar today price: %v", err)
-			// Not worth breaking the whole flow for VES
-		}
-		err = net.UpdateDolarSiPrice()
-		if err != nil {
-			klog.Errorf("Error updating dolar today price: %v", err)
-			// Not worth breaking the whole flow for VES
-		}
-		err = net.UpdateNanoCoingeckoPrices()
-		if err != nil {
-			klog.Errorf("Error updating nano prices: %v", err)
-			os.Exit(1)
-		}
-		err = net.UpdateBananoCoingeckoPrices()
-		if err != nil {
-			klog.Errorf("Error updating banano prices: %v", err)
+			klog.Errorf("Error updating KSHS prices: %v", err)
 			os.Exit(1)
 		}
 		os.Exit(0)
@@ -149,10 +125,10 @@ func main() {
 	// Create app
 	app := chi.NewRouter()
 
-	// BPoW if applicable
+	// BPoW (distributed proof-of-work) if applicable
 	var bpowClient *gql.BpowClient
 	if utils.GetEnv("BPOW_KEY", "") != "" {
-		bpowUrl := "https://boompow.banano.cc/graphql"
+		bpowUrl := "https://boompow.banano.cc/graphql" // default BPoW endpoint
 		if utils.GetEnv("BPOW_URL", "") != "" {
 			bpowUrl = utils.GetEnv("BPOW_URL", "")
 		}
@@ -188,8 +164,7 @@ func main() {
 
 	// Setup controllers
 	pricePrefix := "kshs"
-	_ = bananoMode // unused in Kakitu mode
-	hc := controller.HttpController{RPCClient: &rpcClient, BananoMode: false, FcmTokenRepo: fcmRepo, FcmClient: fcmClient}
+	hc := controller.HttpController{RPCClient: &rpcClient, FcmTokenRepo: fcmRepo, FcmClient: fcmClient}
 	mc := controller.MpesaController{RPCClient: &rpcClient, MpesaTxnRepo: mpesaTxnRepo}
 
 	// Get RATE_LIMIT_WHITELIST from env
@@ -287,7 +262,7 @@ func main() {
 	})
 
 	// Setup WS endpoint
-	wsHub := controller.NewHub(false, &rpcClient, fcmRepo)
+	wsHub := controller.NewHub(&rpcClient, fcmRepo)
 	go wsHub.Run()
 
 	// Health check endpoint (Fix 2) — registered after hub creation
@@ -331,7 +306,7 @@ func main() {
 	// Start nano WS client
 	callbackChan := make(chan *net.WSCallbackMsg, 100)
 	if utils.GetEnv("NODE_WS_URL", "") != "" {
-		go net.StartNanoWSClient(utils.GetEnv("NODE_WS_URL", ""), &callbackChan)
+		go net.StartKshsWSClient(utils.GetEnv("NODE_WS_URL", ""), &callbackChan)
 	}
 
 	// Read channel to notify clients of blocks of new blocks

@@ -1,22 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kalium-server
+  name: kakitu-wallet-server
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: kalium-server
+      app: kakitu-wallet-server
   template:
     metadata:
       labels:
-        app: kalium-server
+        app: kakitu-wallet-server
     spec:
       containers:
-      - name: kalium-server
+      - name: kakitu-wallet-server
         image: replaceme
         command: ["/bin/sh", "-c"]
-        args: ["natrium-server -banano"]
+        args: ["kakitu-server"]
         resources:
           requests:
             cpu: 100m
@@ -32,46 +32,44 @@ spec:
           - name: RPC_URL
             value: http://10.4.0.1:7072
           - name: DB_HOST
-            value: pg-kalium.kalium       
+            value: pg-kakitu.kakitu
           - name: DB_PORT
             value: "5432"
           - name: DB_SSLMODE
             value: disable
           - name: DB_NAME
-            value: postgres 
+            value: postgres
           - name: DB_USER
-            value: postgres 
+            value: postgres
           - name: DB_PASS
             valueFrom:
               secretKeyRef:
-                name: kalium
-                key: db_password 
+                name: kakitu
+                key: db_password
           - name: FCM_API_KEY
             valueFrom:
               secretKeyRef:
-                name: kalium
+                name: kakitu
                 key: fcm_api_key
           - name: BPOW_KEY
             valueFrom:
               secretKeyRef:
-                name: kalium
+                name: kakitu
                 key: bpow_key
           - name: WORK_URL
-            valueFrom: 
+            valueFrom:
               secretKeyRef:
-                name: kalium
+                name: kakitu
                 key: work_url
           - name: RATE_LIMIT_WHITELIST
             valueFrom:
               secretKeyRef:
-                name: kalium
+                name: kakitu
                 key: rate_limit_whitelist
           - name: ADMIN_API_KEY
             valueFrom:
               secretKeyRef:
-                name: kalium
+                name: kakitu
                 key: admin_api_key
-          # - name: BPOW_URL
-          #   value: http://boompow-service.boompow-next:8080/graphql 
           - name: NODE_WS_URL
             value: ws://10.4.0.1:7074

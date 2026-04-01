@@ -83,12 +83,10 @@ func (client *RPCClient) MakeAccountInfoRequest(account string) (map[string]inte
 	return responseMap, nil
 }
 
-// This returns how many pending blocks an account has, up to 51, for anti-spam measures
-func (client *RPCClient) GetReceivableCount(account string, bananoMode bool) (int, error) {
+// GetReceivableCount returns how many pending blocks an account has, up to 51, for anti-spam measures.
+// Uses KSHS threshold (same as Nano: 10^24 raw).
+func (client *RPCClient) GetReceivableCount(account string) (int, error) {
 	threshold := "1000000000000000000000000"
-	if bananoMode {
-		threshold = "1000000000000000000000000000"
-	}
 	request := models.ReceivableRequest{
 		Action:               "receivable",
 		Account:              account,

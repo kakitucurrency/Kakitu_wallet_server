@@ -177,10 +177,10 @@ func UpdateDolarSiPrice() error {
 	return nil
 }
 
-// UpdateNanoCoingeckoPrices updates KSHS prices using the coingecko:kshs-* Redis key prefix.
+// UpdateKshsCoingeckoPrices updates KSHS prices using the coingecko:kshs-* Redis key prefix.
 // When KSHS is listed on CoinGecko, KSHS_CG_URL in config/coingecko.go will return live data.
-// Until then, prices are seeded via the KES exchange rate (1 KSHS ≈ 1 KES).
-func UpdateNanoCoingeckoPrices() error {
+// Until then, prices are seeded via the KES exchange rate (1 KSHS = 1 KES).
+func UpdateKshsCoingeckoPrices() error {
 	klog.Info("Updating KSHS prices\n")
 	rawResp, err := MakeGetRequest(config.KSHS_CG_URL)
 	if err != nil {
@@ -288,10 +288,5 @@ func seedKshsPricesFromKes() error {
 
 	// Mark prices as freshly updated.
 	SetPriceLastUpdated(time.Now())
-	return nil
-}
-
-// UpdateBananoCoingeckoPrices is kept as a no-op for API compatibility
-func UpdateBananoCoingeckoPrices() error {
 	return nil
 }

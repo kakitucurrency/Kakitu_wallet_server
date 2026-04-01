@@ -40,7 +40,7 @@ func init() {
 	rpcClient := net.RPCClient{
 		Url: "http://localhost:8080",
 	}
-	controller = &HttpController{RPCClient: &rpcClient, BananoMode: false, FcmTokenRepo: fcmRepo, FcmClient: nil}
+	controller = &HttpController{RPCClient: &rpcClient, FcmTokenRepo: fcmRepo, FcmClient: nil}
 }
 
 // Verify that unsupported actions are rejected

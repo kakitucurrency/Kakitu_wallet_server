@@ -49,11 +49,3 @@ func KshsToRaw(kshs float64) string {
 	return fmt.Sprintf("%d", res)
 }
 
-// Aliases kept for compatibility with controller code that still calls RawToNano/NanoToRaw
-func RawToNano(raw string, truncate bool) (float64, error) {
-	return RawToKshs(raw, truncate)
-}
-
-func NanoToRaw(nano float64) string {
-	return KshsToRaw(nano)
-}
