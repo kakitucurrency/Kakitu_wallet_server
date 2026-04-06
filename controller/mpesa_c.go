@@ -201,8 +201,8 @@ func (mc *MpesaController) HandleCashInCallback(w http.ResponseWriter, r *http.R
 	amountKES, _ := txn.AmountKes.Float64()
 	_, err = mc.EthClient.MintKSHS(txn.KshsAddress, receipt, int64(amountKES))
 	if err != nil {
-		klog.Errorf("MintKSHS to %s failed: %v", txn.KshsAddress, err)
-		if err := mc.MpesaTxnRepo.UpdateStatus(cb.CheckoutRequestID, "failed", receipt); err != nil {
+		klog.Errorf("MINT_FAILED — user %s owed %s KSHS, mpesaRef: %s | error: %v", txn.KshsAddress, txn.AmountKes.String(), receipt, err)
+		if err := mc.MpesaTxnRepo.UpdateStatus(cb.CheckoutRequestID, "mint_failed", receipt); err != nil {
 			klog.Errorf("ERROR: failed to update status for %s: %v", cb.CheckoutRequestID, err)
 		}
 		return
@@ -216,9 +216,28 @@ func (mc *MpesaController) HandleCashInCallback(w http.ResponseWriter, r *http.R
 // ── Cash-Out ─────────────────────────────────────────────────────────────────
 
 type cashOutRequest struct {
-	Phone     string `json:"phone"`
-	AmountKES string `json:"amount_kes"`
-	TxHash    string `json:"tx_hash"`
+	Phone        string `json:"phone"`
+	AmountKES    string `json:"amount_kes"`
+	TxHash       string `json:"tx_hash"`
+	KshsAddress  string `json:"kshs_address"`
+}
+
+// isValidTxHash returns true if hash is a 0x-prefixed 32-byte hex string.
+func isValidTxHash(hash string) bool {
+	if len(hash) != 66 || !strings.HasPrefix(hash, "0x") {
+		return false
+	}
+	return isHex(hash[2:])
+}
+
+// isHex returns true if every character in s is a valid hexadecimal digit.
+func isHex(s string) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return len(s) > 0
 }
 
 // HandleCashOut verifies a KSHS send block and initiates a B2C payment to the user.
@@ -242,6 +261,14 @@ func (mc *MpesaController) HandleCashOut(w http.ResponseWriter, r *http.Request)
 		ErrBadrequest(w, r, "tx_hash is required")
 		return
 	}
+	if !isValidTxHash(req.TxHash) {
+		ErrBadrequest(w, r, "tx_hash must be a valid 32-byte hex hash (0x + 64 hex chars)")
+		return
+	}
+	if !common.IsHexAddress(req.KshsAddress) {
+		ErrBadrequest(w, r, "invalid kshs_address: must be a valid Ethereum address (0x...)")
+		return
+	}
 
 	phone, err := normalizePhone(req.Phone)
 	if err != nil {
@@ -255,8 +282,8 @@ func (mc *MpesaController) HandleCashOut(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Verify the on-chain ERC20 burn/transfer.
-	if err := mc.EthClient.VerifyMint(req.TxHash, utils.GetEnv("TREASURY_ADDRESS", ""), amount); err != nil {
+	// Verify the on-chain ERC20 burn transaction.
+	if err := mc.EthClient.VerifyBurn(req.TxHash, req.KshsAddress, amount); err != nil {
 		ErrBadrequest(w, r, fmt.Sprintf("on-chain verification failed: %s", err))
 		return
 	}
@@ -264,7 +291,7 @@ func (mc *MpesaController) HandleCashOut(w http.ResponseWriter, r *http.Request)
 	// FIRST create the pending cash-out record before sending any money.
 	// This way, if the DB insert fails (e.g. duplicate tx_hash), no B2C is sent.
 	amountDec := decimal.NewFromInt(amount)
-	txn, err := mc.MpesaTxnRepo.CreatePendingCashOutAtomic(amountDec, req.TxHash, req.TxHash, "")
+	txn, err := mc.MpesaTxnRepo.CreatePendingCashOutAtomic(amountDec, req.KshsAddress, req.TxHash, "")
 	if err != nil {
 		klog.Errorf("Saving cash-out txn: %v", err)
 		if strings.Contains(err.Error(), "duplicat") || strings.Contains(err.Error(), "23505") || strings.Contains(err.Error(), "unique") {
@@ -296,8 +323,11 @@ func (mc *MpesaController) HandleCashOut(w http.ResponseWriter, r *http.Request)
 	}
 
 	// B2C succeeded — update the record with the ConversationID for callback matching.
+	// This MUST succeed; if it fails we will be unable to match the B2C callback to this
+	// transaction. Log all details at CRITICAL level so the payout can be reconciled manually.
 	if err := mc.MpesaTxnRepo.UpdateStatus(txn.MerchantReqID, "pending", conversationID); err != nil {
-		klog.Errorf("ERROR: failed to update conversation ID: %v", err)
+		klog.Errorf("CRITICAL: B2C initiated but ConversationID not stored — MANUAL RECONCILIATION REQUIRED | conversationID: %s | amount: %s KES | phone: %s | kshsAddress: %s | txHash: %s | updateErr: %v",
+			conversationID, req.AmountKES, phone, req.KshsAddress, req.TxHash, err)
 	}
 
 	render.Status(r, http.StatusOK)
