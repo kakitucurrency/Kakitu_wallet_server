@@ -8,9 +8,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/go-chi/render"
+	"github.com/kakitucurrency/kakitu-wallet-server/ethereum"
 	"github.com/kakitucurrency/kakitu-wallet-server/mpesa"
-	"github.com/kakitucurrency/kakitu-wallet-server/net"
 	"github.com/kakitucurrency/kakitu-wallet-server/repository"
 	"github.com/kakitucurrency/kakitu-wallet-server/utils"
 	"github.com/shopspring/decimal"
@@ -19,7 +20,7 @@ import (
 
 // MpesaController handles M-Pesa cash-in and cash-out HTTP endpoints.
 type MpesaController struct {
-	RPCClient    *net.RPCClient
+	EthClient    *ethereum.Client
 	MpesaTxnRepo *repository.MpesaTxnRepo
 }
 
@@ -93,8 +94,8 @@ func (mc *MpesaController) HandleCashIn(w http.ResponseWriter, r *http.Request) 
 		ErrBadrequest(w, r, "amount_kes is required")
 		return
 	}
-	if !utils.ValidateAddress(req.KshsAddress) {
-		ErrBadrequest(w, r, "invalid kshs_address")
+	if !common.IsHexAddress(req.KshsAddress) {
+		ErrBadrequest(w, r, "invalid kshs_address: must be a valid Ethereum address (0x...)")
 		return
 	}
 
@@ -197,16 +198,10 @@ func (mc *MpesaController) HandleCashInCallback(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	amountRaw, err := utils.KesToRaw(txn.AmountKes.String())
+	amountKES, _ := txn.AmountKes.Float64()
+	_, err = mc.EthClient.MintKSHS(txn.KshsAddress, receipt, int64(amountKES))
 	if err != nil {
-		if err := mc.MpesaTxnRepo.UpdateStatus(checkoutRequestID, "failed", ""); err != nil {
-			klog.Errorf("ERROR: failed to update status for %s: %v", checkoutRequestID, err)
-		}
-		return
-	}
-
-	if err := utils.SendKSHS(mc.RPCClient, txn.KshsAddress, amountRaw); err != nil {
-		klog.Errorf("SendKSHS to %s failed (check treasury balance): %v", txn.KshsAddress, err)
+		klog.Errorf("MintKSHS to %s failed: %v", txn.KshsAddress, err)
 		if err := mc.MpesaTxnRepo.UpdateStatus(cb.CheckoutRequestID, "failed", receipt); err != nil {
 			klog.Errorf("ERROR: failed to update status for %s: %v", cb.CheckoutRequestID, err)
 		}
@@ -260,43 +255,16 @@ func (mc *MpesaController) HandleCashOut(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Verify the on-chain block.
-	block, err := mc.RPCClient.MakeBlockRequest(req.TxHash)
-	if err != nil {
-		ErrBadrequest(w, r, fmt.Sprintf("block lookup failed: %s", err))
-		return
-	}
-
-	if block.Confirmed != "true" {
-		ErrBadrequest(w, r, "block is not confirmed")
-		return
-	}
-
-	if block.Subtype != "send" {
-		ErrBadrequest(w, r, "block subtype must be 'send'")
-		return
-	}
-
-	treasuryAddress := utils.GetEnv("TREASURY_ADDRESS", "")
-	if block.Contents.LinkAsAccount != treasuryAddress {
-		ErrBadrequest(w, r, "block destination does not match treasury address")
-		return
-	}
-
-	expectedRaw, err := utils.KesToRaw(req.AmountKES)
-	if err != nil {
-		ErrBadrequest(w, r, fmt.Sprintf("invalid amount_kes: %s", err))
-		return
-	}
-	if block.Amount != expectedRaw.String() {
-		ErrBadrequest(w, r, "block amount does not match requested amount")
+	// Verify the on-chain ERC20 burn/transfer.
+	if err := mc.EthClient.VerifyMint(req.TxHash, utils.GetEnv("TREASURY_ADDRESS", ""), amount); err != nil {
+		ErrBadrequest(w, r, fmt.Sprintf("on-chain verification failed: %s", err))
 		return
 	}
 
 	// FIRST create the pending cash-out record before sending any money.
 	// This way, if the DB insert fails (e.g. duplicate tx_hash), no B2C is sent.
 	amountDec := decimal.NewFromInt(amount)
-	txn, err := mc.MpesaTxnRepo.CreatePendingCashOutAtomic(amountDec, block.BlockAccount, req.TxHash, "")
+	txn, err := mc.MpesaTxnRepo.CreatePendingCashOutAtomic(amountDec, req.TxHash, req.TxHash, "")
 	if err != nil {
 		klog.Errorf("Saving cash-out txn: %v", err)
 		if strings.Contains(err.Error(), "duplicat") || strings.Contains(err.Error(), "23505") || strings.Contains(err.Error(), "unique") {

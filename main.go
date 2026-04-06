@@ -16,6 +16,7 @@ import (
 
 	"github.com/kakitucurrency/kakitu-wallet-server/controller"
 	"github.com/kakitucurrency/kakitu-wallet-server/database"
+	"github.com/kakitucurrency/kakitu-wallet-server/ethereum"
 	"github.com/kakitucurrency/kakitu-wallet-server/gql"
 	"github.com/kakitucurrency/kakitu-wallet-server/models"
 	"github.com/kakitucurrency/kakitu-wallet-server/net"
@@ -162,10 +163,16 @@ func main() {
 		DB: db,
 	}
 
+	// Setup Ethereum client (Base mainnet)
+	ethClient, err := ethereum.New()
+	if err != nil {
+		klog.Fatalf("Failed to initialise Ethereum client: %v", err)
+	}
+
 	// Setup controllers
 	pricePrefix := "kshs"
 	hc := controller.HttpController{RPCClient: &rpcClient, FcmTokenRepo: fcmRepo, FcmClient: fcmClient}
-	mc := controller.MpesaController{RPCClient: &rpcClient, MpesaTxnRepo: mpesaTxnRepo}
+	mc := controller.MpesaController{EthClient: ethClient, MpesaTxnRepo: mpesaTxnRepo}
 
 	// Get RATE_LIMIT_WHITELIST from env
 	rateLimitWhitelist := strings.Split(utils.GetEnv("RATE_LIMIT_WHITELIST", ""), ",")
