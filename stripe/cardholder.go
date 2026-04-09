@@ -31,18 +31,20 @@ type IssuedCard struct {
 }
 
 type CardDetails struct {
-	Number     string
-	CVC        string
-	ExpMonth   int64
-	ExpYear    int64
-	PostalCode string
+	Number   string
+	CVC      string
+	ExpMonth int64
+	ExpYear  int64
 }
 
 // CreateCardholder creates a Stripe Issuing cardholder and immediately issues a virtual card.
 func CreateCardholder(p CardholderParams) (*IssuedCard, error) {
 	ch, err := cardholder.New(&stripe.IssuingCardholderParams{
-		Name:  stripe.String(p.Name),
-		Type:  stripe.String("individual"),
+		Params: stripe.Params{
+			IdempotencyKey: stripe.String("ch-" + p.Phone),
+		},
+		Name:        stripe.String(p.Name),
+		Type:        stripe.String("individual"),
 		PhoneNumber: stripe.String(p.Phone),
 		Billing: &stripe.IssuingCardholderBillingParams{
 			Address: &stripe.AddressParams{
@@ -58,6 +60,9 @@ func CreateCardholder(p CardholderParams) (*IssuedCard, error) {
 	}
 
 	c, err := card.New(&stripe.IssuingCardParams{
+		Params: stripe.Params{
+			IdempotencyKey: stripe.String("card-" + p.Phone),
+		},
 		Cardholder: stripe.String(ch.ID),
 		Currency:   stripe.String("eur"),
 		Type:       stripe.String("virtual"),
@@ -85,7 +90,7 @@ func CreateCardholder(p CardholderParams) (*IssuedCard, error) {
 
 // GetCardDetails fetches the sensitive card data (number, CVC) from Stripe.
 // Never cache the result — call fresh each time the user requests to see details.
-func GetCardDetails(cardID string, postalCode string) (*CardDetails, error) {
+func GetCardDetails(cardID string) (*CardDetails, error) {
 	c, err := card.Get(cardID, &stripe.IssuingCardParams{
 		Params: stripe.Params{
 			Expand: []*string{
@@ -98,10 +103,9 @@ func GetCardDetails(cardID string, postalCode string) (*CardDetails, error) {
 		return nil, err
 	}
 	return &CardDetails{
-		Number:     c.Number,
-		CVC:        c.CVC,
-		ExpMonth:   c.ExpMonth,
-		ExpYear:    c.ExpYear,
-		PostalCode: postalCode,
+		Number:   c.Number,
+		CVC:      c.CVC,
+		ExpMonth: c.ExpMonth,
+		ExpYear:  c.ExpYear,
 	}, nil
 }
