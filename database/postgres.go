@@ -45,5 +45,10 @@ func DropAndCreateTables(db *gorm.DB) error {
 }
 
 func Migrate(db *gorm.DB) error {
-	return db.AutoMigrate(&dbmodels.FcmToken{}, &dbmodels.MpesaTransaction{})
+	return db.AutoMigrate(
+		&dbmodels.FcmToken{},
+		&dbmodels.MpesaTransaction{},
+		&dbmodels.StripeAddress{},
+		&dbmodels.StripeCard{},
+	)
 }
