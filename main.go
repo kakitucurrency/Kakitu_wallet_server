@@ -162,6 +162,12 @@ func main() {
 	mpesaTxnRepo := &repository.MpesaTxnRepo{
 		DB: db,
 	}
+	stripeAddressRepo := &repository.StripeAddressRepo{DB: db}
+	stripeCardRepo := &repository.StripeCardRepo{DB: db}
+	ic := &controller.IssuingController{
+		AddressRepo: stripeAddressRepo,
+		CardRepo:    stripeCardRepo,
+	}
 
 	// Setup Ethereum client (Base mainnet)
 	ethClient, err := ethereum.New()
@@ -243,6 +249,12 @@ func main() {
 		r.Post("/cashin/callback", mc.HandleCashInCallback)
 		r.Post("/cashout", mc.HandleCashOut)
 		r.Post("/cashout/callback", mc.HandleCashOutCallback)
+	})
+
+	// Stripe Issuing routes
+	app.Route("/issuing", func(r chi.Router) {
+		r.Post("/card", ic.HandleIssueCard)
+		r.Get("/card/details", ic.HandleCardDetails)
 	})
 
 	// Alerts
