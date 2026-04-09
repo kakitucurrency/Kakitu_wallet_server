@@ -45,6 +45,7 @@ func CreateCardholder(p CardholderParams) (*IssuedCard, error) {
 		},
 		Name:        stripe.String(p.Name),
 		Type:        stripe.String("individual"),
+		Status:      stripe.String("active"),
 		PhoneNumber: stripe.String(p.Phone),
 		Billing: &stripe.IssuingCardholderBillingParams{
 			Address: &stripe.AddressParams{
