@@ -31,6 +31,8 @@ func (r *StripeAddressRepo) AssignAddress(kakituAddress string) (*dbmodels.Strip
 			return res.Error
 		}
 		now := time.Now().UTC()
+		addr.AssignedTo = &kakituAddress
+		addr.AssignedAt = &now
 		return tx.Model(&addr).Updates(map[string]interface{}{
 			"assigned_to": kakituAddress,
 			"assigned_at": now,
@@ -42,7 +44,9 @@ func (r *StripeAddressRepo) AssignAddress(kakituAddress string) (*dbmodels.Strip
 	return &addr, nil
 }
 
-// AvailableCount returns how many unassigned addresses remain in the pool.
+// AvailableCount returns a snapshot count of unassigned addresses.
+// Do NOT use this as a precondition gate before AssignAddress — use the
+// returned ErrNoAddressesAvailable to detect pool exhaustion atomically.
 func (r *StripeAddressRepo) AvailableCount() (int64, error) {
 	var count int64
 	err := r.DB.Model(&dbmodels.StripeAddress{}).Where("assigned_to IS NULL").Count(&count).Error
