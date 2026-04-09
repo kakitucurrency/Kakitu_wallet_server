@@ -19,6 +19,13 @@ const kshs_RegexStr = "(?:kshs)(?:_)(?:1|3)(?:[13456789abcdefghijkmnopqrstuwxyz]
 
 var kshsRegex = regexp.MustCompile(kshs_RegexStr)
 
+var ethAddressRegex = regexp.MustCompile(`^0x[0-9a-fA-F]{40}$`)
+
+// ValidateEthAddress returns true if s is a well-formed Ethereum address.
+func ValidateEthAddress(s string) bool {
+	return ethAddressRegex.MatchString(s)
+}
+
 // ValidateAddress returns true if a kshs_ address is valid.
 func ValidateAddress(account string) bool {
 	if !kshsRegex.MatchString(account) {

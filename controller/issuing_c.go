@@ -51,7 +51,7 @@ func (ic *IssuingController) HandleIssueCard(w http.ResponseWriter, r *http.Requ
 	}
 
 	// 1. Validate inputs
-	if !utils.ValidateAddress(req.Account) {
+	if !utils.ValidateEthAddress(req.Account) {
 		ErrBadrequest(w, r, "invalid_account")
 		return
 	}
@@ -135,7 +135,7 @@ func (ic *IssuingController) HandleCardDetails(w http.ResponseWriter, r *http.Re
 	account := r.URL.Query().Get("account")
 
 	// 1. Validate account param
-	if !utils.ValidateAddress(account) {
+	if !utils.ValidateEthAddress(account) {
 		ErrBadrequest(w, r, "invalid_account")
 		return
 	}
