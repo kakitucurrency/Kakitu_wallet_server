@@ -127,6 +127,9 @@ func (ic *IssuingController) HandleIssueCard(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+// NOTE: This endpoint does not verify that the caller owns the requested account.
+// Caller authentication is a systemic concern for the entire API and not scoped to this handler.
+
 // HandleCardDetails handles GET /issuing/card/details?account=kshs_...
 func (ic *IssuingController) HandleCardDetails(w http.ResponseWriter, r *http.Request) {
 	account := r.URL.Query().Get("account")
@@ -152,7 +155,19 @@ func (ic *IssuingController) HandleCardDetails(w http.ResponseWriter, r *http.Re
 
 	// 3. Fetch postal code from stripe_addresses using card.AddressID
 	var addrRow struct{ PostalCode string }
-	ic.AddressRepo.DB.Raw("SELECT postal_code FROM stripe_addresses WHERE id = ?", card.AddressID).Scan(&addrRow)
+	result := ic.AddressRepo.DB.Raw(
+		"SELECT postal_code FROM stripe_addresses WHERE id = ?", card.AddressID,
+	).Scan(&addrRow)
+	if result.Error != nil {
+		klog.Errorf("HandleCardDetails: address lookup error for addressID %s: %v", card.AddressID, result.Error)
+		ErrInternalServerError(w, r, "db_error")
+		return
+	}
+	if addrRow.PostalCode == "" {
+		klog.Errorf("HandleCardDetails: no address found for addressID %s", card.AddressID)
+		ErrInternalServerError(w, r, "address_not_found")
+		return
+	}
 
 	// 4. Fetch sensitive card details from Stripe
 	details, err := stripeissuing.GetCardDetails(card.StripeCardID)

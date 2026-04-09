@@ -19,8 +19,19 @@ type StripeAddressRepo struct {
 // Uses SELECT FOR UPDATE SKIP LOCKED so concurrent requests never race on the same row.
 // Returns ErrNoAddressesAvailable if the pool is empty.
 func (r *StripeAddressRepo) AssignAddress(kakituAddress string) (*dbmodels.StripeAddress, error) {
+	// Check if this account already has an address assigned (idempotent retry support).
+	var existing dbmodels.StripeAddress
+	err := r.DB.Where("assigned_to = ?", kakituAddress).First(&existing).Error
+	if err == nil {
+		return &existing, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	// No existing assignment — claim a new address.
+
 	var addr dbmodels.StripeAddress
-	err := r.DB.Transaction(func(tx *gorm.DB) error {
+	err = r.DB.Transaction(func(tx *gorm.DB) error {
 		res := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
 			Where("assigned_to IS NULL").
 			First(&addr)
