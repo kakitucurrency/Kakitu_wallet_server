@@ -24,13 +24,14 @@ func (r *StripeCardRepo) GetCardByAccount(kakituAddress string) (*dbmodels.Strip
 	return &card, nil
 }
 
-// CreateCard persists a newly issued Stripe card.
-func (r *StripeCardRepo) CreateCard(kakituAddress, cardholderID, cardID, addressID string) (*dbmodels.StripeCard, error) {
+// CreateCard persists a newly issued card.
+// cardholderID is the provider's cardholder/meta identifier.
+// cardID is the provider's card identifier.
+func (r *StripeCardRepo) CreateCard(kakituAddress, cardholderID, cardID string) (*dbmodels.StripeCard, error) {
 	card := &dbmodels.StripeCard{
 		KakituAddress:      kakituAddress,
 		StripeCardholderID: cardholderID,
 		StripeCardID:       cardID,
-		AddressID:          addressID,
 	}
 	if err := r.DB.Create(card).Error; err != nil {
 		return nil, err

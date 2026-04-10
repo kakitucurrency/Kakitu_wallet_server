@@ -162,11 +162,9 @@ func main() {
 	mpesaTxnRepo := &repository.MpesaTxnRepo{
 		DB: db,
 	}
-	stripeAddressRepo := &repository.StripeAddressRepo{DB: db}
 	stripeCardRepo := &repository.StripeCardRepo{DB: db}
 	ic := &controller.IssuingController{
-		AddressRepo: stripeAddressRepo,
-		CardRepo:    stripeCardRepo,
+		CardRepo: stripeCardRepo,
 	}
 
 	// Setup Ethereum client (Base mainnet)
