@@ -94,7 +94,10 @@ func STKPush(token, phone, amountKES, ref8 string) (*STKPushResult, error) {
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading STK response body: %w", err)
+	}
 	var stkResp stkPushResponse
 	if err := json.Unmarshal(respBody, &stkResp); err != nil {
 		return nil, fmt.Errorf("parsing STK response: %w (raw: %s)", err, string(respBody))
