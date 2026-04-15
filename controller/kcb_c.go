@@ -72,6 +72,14 @@ func validateKCBCallbackAuth(r *http.Request) bool {
 	return false
 }
 
+// HandleConfig returns the KCB treasury address used by the Flutter app for cashout.
+// GET /kcb/config
+func (kc *KCBController) HandleConfig(w http.ResponseWriter, r *http.Request) {
+	render.JSON(w, r, map[string]string{
+		"treasury_address": utils.GetEnv("TREASURY_ADDRESS", ""),
+	})
+}
+
 // ── Cash-In ──────────────────────────────────────────────────────────────────
 
 type kcbCashInRequest struct {

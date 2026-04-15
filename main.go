@@ -241,10 +241,11 @@ func main() {
 
 	// KCB Buni routes
 	app.Route("/kcb", func(r chi.Router) {
-		r.Post("/cashin",           kc.HandleCashIn)
-		r.Post("/cashin/callback",  kc.HandleCashInCallback)
-		r.Post("/cashout",          kc.HandleCashOut)
-		r.Post("/cashout/callback", kc.HandleCashOutCallback)
+		r.Get("/config",             kc.HandleConfig)
+		r.Post("/cashin",            kc.HandleCashIn)
+		r.Post("/cashin/callback",   kc.HandleCashInCallback)
+		r.Post("/cashout",           kc.HandleCashOut)
+		r.Post("/cashout/callback",  kc.HandleCashOutCallback)
 	})
 
 	// KCB cashout polling — resolves stalled Funds Transfer transactions every 30 seconds.
