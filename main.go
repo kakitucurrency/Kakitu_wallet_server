@@ -18,6 +18,7 @@ import (
 	"github.com/kakitucurrency/kakitu-wallet-server/database"
 	"github.com/kakitucurrency/kakitu-wallet-server/ethereum"
 	"github.com/kakitucurrency/kakitu-wallet-server/gql"
+	"github.com/kakitucurrency/kakitu-wallet-server/kcb"
 	"github.com/kakitucurrency/kakitu-wallet-server/models"
 	"github.com/kakitucurrency/kakitu-wallet-server/net"
 	"github.com/kakitucurrency/kakitu-wallet-server/repository"
@@ -159,9 +160,7 @@ func main() {
 	fcmRepo := &repository.FcmTokenRepo{
 		DB: db,
 	}
-	mpesaTxnRepo := &repository.MpesaTxnRepo{
-		DB: db,
-	}
+	kcbTxnRepo := &repository.KCBTxnRepo{DB: db}
 	stripeCardRepo := &repository.StripeCardRepo{DB: db}
 	ic := &controller.IssuingController{
 		CardRepo: stripeCardRepo,
@@ -176,7 +175,7 @@ func main() {
 	// Setup controllers
 	pricePrefix := "kshs"
 	hc := controller.HttpController{RPCClient: &rpcClient, FcmTokenRepo: fcmRepo, FcmClient: fcmClient}
-	mc := controller.MpesaController{EthClient: ethClient, MpesaTxnRepo: mpesaTxnRepo}
+	kc := &controller.KCBController{EthClient: ethClient, TxnRepo: kcbTxnRepo}
 
 	// Get RATE_LIMIT_WHITELIST from env
 	rateLimitWhitelist := strings.Split(utils.GetEnv("RATE_LIMIT_WHITELIST", ""), ",")
@@ -240,14 +239,50 @@ func main() {
 	app.Post("/api", hc.HandleAction)
 	app.Post("/callback", hc.HandleHTTPCallback)
 
-	// M-Pesa Daraja routes
-	app.Route("/mpesa", func(r chi.Router) {
-		r.Get("/config", mc.HandleConfig)
-		r.Post("/cashin", mc.HandleCashIn)
-		r.Post("/cashin/callback", mc.HandleCashInCallback)
-		r.Post("/cashout", mc.HandleCashOut)
-		r.Post("/cashout/callback", mc.HandleCashOutCallback)
+	// KCB Buni routes
+	app.Route("/kcb", func(r chi.Router) {
+		r.Post("/cashin",           kc.HandleCashIn)
+		r.Post("/cashin/callback",  kc.HandleCashInCallback)
+		r.Post("/cashout",          kc.HandleCashOut)
+		r.Post("/cashout/callback", kc.HandleCashOutCallback)
 	})
+
+	// KCB cashout polling — resolves stalled Funds Transfer transactions every 30 seconds.
+	companyCode := utils.GetEnv("KCB_COMPANY_CODE", "")
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			txns, err := kcbTxnRepo.GetStaleCashOuts()
+			if err != nil {
+				klog.Errorf("KCB polling: GetStaleCashOuts error: %v", err)
+				continue
+			}
+			for _, txn := range txns {
+				token, err := kcb.GetToken()
+				if err != nil {
+					klog.Errorf("KCB polling: GetToken error: %v", err)
+					break
+				}
+				status, err := kcb.QueryTransaction(token, txn.TransactionReference, companyCode)
+				if err != nil {
+					klog.Errorf("KCB polling: QueryTransaction error for %s: %v", txn.TransactionReference, err)
+					_ = kcbTxnRepo.IncrementPollAttempt(txn.ID)
+					continue
+				}
+				switch status {
+				case "SUCCESS":
+					_ = kcbTxnRepo.UpdateStatus(txn.ID, "completed", txn.RetrievalRefNumber)
+					klog.Infof("KCB polling: cashout %s resolved as SUCCESS", txn.TransactionReference)
+				case "FAILED":
+					_ = kcbTxnRepo.UpdateStatus(txn.ID, "failed", "")
+					klog.Errorf("KCB polling: cashout %s resolved as FAILED", txn.TransactionReference)
+				default:
+					_ = kcbTxnRepo.IncrementPollAttempt(txn.ID)
+				}
+			}
+		}
+	}()
 
 	// Stripe Issuing routes
 	app.Route("/issuing", func(r chi.Router) {
