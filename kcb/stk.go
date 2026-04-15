@@ -58,6 +58,9 @@ func STKPush(token, phone, amountKES, ref8 string) (*STKPushResult, error) {
 	if debitAccount == "" {
 		return nil, fmt.Errorf("KCB_DEBIT_ACCOUNT must be set")
 	}
+	if callbackURL == "" {
+		return nil, fmt.Errorf("KCB_CALLBACK_URL must be set — KCB cannot post STK callbacks without a reachable URL")
+	}
 
 	payload := stkPushRequest{
 		PhoneNumber:            phone,

@@ -271,8 +271,9 @@ func (kc *KCBController) HandleCashOut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify the on-chain ERC20 burn before sending any money.
-	if err := kc.EthClient.VerifyBurn(req.TxHash, req.KshsAddress, amount); err != nil {
+	// Verify the on-chain ERC20 transfer to treasury before sending any money.
+	treasuryAddress := utils.GetEnv("TREASURY_ADDRESS", "")
+	if err := kc.EthClient.VerifyTransferToTreasury(req.TxHash, req.KshsAddress, treasuryAddress, amount); err != nil {
 		ErrBadrequest(w, r, fmt.Sprintf("on_chain_verification_failed: %s", err))
 		return
 	}
